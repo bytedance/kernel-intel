@@ -446,18 +446,6 @@ out:
 	return ret;
 }
 
-/**
- * struct genl_info - info that is available during dumpit op call
- * @family: generic netlink family - for internal genl code usage
- * @ops: generic netlink ops - for internal genl code usage
- * @attrs: netlink attributes
- */
-struct genl_dumpit_info {
-	const struct genl_family *family;
-	struct genl_ops op;
-	struct nlattr **attrs;
-};
-
 /* generic ->start() handler for GET requests */
 static int ethnl_default_start(struct netlink_callback *cb)
 {
