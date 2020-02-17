@@ -1093,23 +1093,6 @@ static u64 intel_pt_reference(struct auxtrace_record *itr __maybe_unused)
 	return rdtsc();
 }
 
-static int intel_pt_read_finish(struct auxtrace_record *itr, int idx)
-{
-	struct intel_pt_recording *ptr =
-			container_of(itr, struct intel_pt_recording, itr);
-	struct evsel *evsel;
-
-	evlist__for_each_entry(ptr->evlist, evsel) {
-		if (evsel->core.attr.type == ptr->intel_pt_pmu->type) {
-			if (evsel->disabled)
-				return 0;
-			return perf_evlist__enable_event_idx(ptr->evlist, evsel,
-							     idx);
-		}
-	}
-	return -EINVAL;
-}
-
 struct auxtrace_record *intel_pt_recording_init(int *err)
 {
 	struct perf_pmu *intel_pt_pmu = perf_pmu__find(INTEL_PT_PMU_NAME);
@@ -1130,6 +1113,7 @@ struct auxtrace_record *intel_pt_recording_init(int *err)
 	}
 
 	ptr->intel_pt_pmu = intel_pt_pmu;
+	ptr->itr.pmu = intel_pt_pmu;
 	ptr->itr.recording_options = intel_pt_recording_options;
 	ptr->itr.info_priv_size = intel_pt_info_priv_size;
 	ptr->itr.info_fill = intel_pt_info_fill;
@@ -1139,6 +1123,6 @@ struct auxtrace_record *intel_pt_recording_init(int *err)
 	ptr->itr.find_snapshot = intel_pt_find_snapshot;
 	ptr->itr.parse_snapshot_options = intel_pt_parse_snapshot_options;
 	ptr->itr.reference = intel_pt_reference;
-	ptr->itr.read_finish = intel_pt_read_finish;
+	ptr->itr.read_finish = auxtrace_record__read_finish;
 	return &ptr->itr;
 }
