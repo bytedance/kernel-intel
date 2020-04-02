@@ -389,7 +389,7 @@ struct hstate {
 #endif
 #ifdef CONFIG_CGROUP_HUGETLB
 	/* cgroup control files */
-	struct cftype cgroup_files[5];
+	struct cftype cgroup_files[9];
 #endif
 	char name[HSTATE_NAME_LEN];
 };
