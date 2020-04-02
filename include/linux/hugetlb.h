@@ -42,7 +42,8 @@ enum {
 	SUBPAGE_INDEX_TEMPORARY,	/* reuse page->mapping */
 #ifdef CONFIG_CGROUP_HUGETLB
 	SUBPAGE_INDEX_CGROUP = SUBPAGE_INDEX_TEMPORARY,/* reuse page->private */
-	__MAX_CGROUP_SUBPAGE_INDEX = SUBPAGE_INDEX_CGROUP,
+	SUBPAGE_INDEX_CGROUP_RSVD,      /* reuse page->private */
+	__MAX_CGROUP_SUBPAGE_INDEX = SUBPAGE_INDEX_CGROUP_RSVD,
 #endif
 	SUBPAGE_INDEX_FREED,		/* reuse page->private */
 	SUBPAGE_INDEX_VMEMMAP_OPTIMIZED,/* reuse page->private */
