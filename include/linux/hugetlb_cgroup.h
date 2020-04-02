@@ -18,8 +18,10 @@
 #include <linux/mmdebug.h>
 
 struct hugetlb_cgroup;
+struct resv_map;
 
 #ifdef CONFIG_CGROUP_HUGETLB
+
 /*
  * Minimum page order trackable by hugetlb cgroup.
  * At least 4 pages are necessary for all the tracking information.
@@ -27,6 +29,20 @@ struct hugetlb_cgroup;
  * The third tail page (hpage[3]) is the reservation usage cgroup.
  */
 #define HUGETLB_CGROUP_MIN_ORDER order_base_2(__MAX_CGROUP_SUBPAGE_INDEX + 1)
+
+struct hugetlb_cgroup {
+	struct cgroup_subsys_state css;
+
+	/*
+	 * the counter to account for hugepages from hugetlb.
+	 */
+	struct page_counter hugepage[HUGE_MAX_HSTATE];
+
+	/*
+	 * the counter to account for hugepage reservations from hugetlb.
+	 */
+	struct page_counter rsvd_hugepage[HUGE_MAX_HSTATE];
+};
 
 static inline struct hugetlb_cgroup *
 __hugetlb_cgroup_from_page(struct page *page, bool rsvd)
@@ -105,9 +121,9 @@ extern void hugetlb_cgroup_uncharge_cgroup(int idx, unsigned long nr_pages,
 					   struct hugetlb_cgroup *h_cg);
 extern void hugetlb_cgroup_uncharge_cgroup_rsvd(int idx, unsigned long nr_pages,
 						struct hugetlb_cgroup *h_cg);
-extern void hugetlb_cgroup_uncharge_counter(struct page_counter *p,
-					    unsigned long nr_pages,
-					    struct cgroup_subsys_state *css);
+extern void hugetlb_cgroup_uncharge_counter(struct resv_map *resv,
+					    unsigned long start,
+					    unsigned long end);
 
 extern void hugetlb_cgroup_file_init(void) __init;
 extern void hugetlb_cgroup_migrate(struct page *oldhpage,
@@ -193,6 +209,12 @@ static inline void hugetlb_cgroup_uncharge_cgroup(int idx,
 static inline void
 hugetlb_cgroup_uncharge_cgroup_rsvd(int idx, unsigned long nr_pages,
 				    struct hugetlb_cgroup *h_cg)
+{
+}
+
+static inline void hugetlb_cgroup_uncharge_counter(struct resv_map *resv,
+						   unsigned long start,
+						   unsigned long end)
 {
 }
 
