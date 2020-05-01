@@ -427,15 +427,15 @@ static void ghes_kick_task_work(struct callback_head *head)
 	u32 node_len;
 
 	estatus_node = container_of(head, struct ghes_estatus_node, task_work);
-	memory_failure_queue_kick(estatus_node->task_work_cpu);
+	if (IS_ENABLED(CONFIG_ACPI_APEI_MEMORY_FAILURE))
+		memory_failure_queue_kick(estatus_node->task_work_cpu);
 
 	estatus = GHES_ESTATUS_FROM_NODE(estatus_node);
 	node_len = GHES_ESTATUS_NODE_LEN(cper_estatus_len(estatus));
 	gen_pool_free(ghes_estatus_pool, (unsigned long)estatus_node, node_len);
 }
 
-static bool ghes_handle_memory_failure(struct ghes *ghes,
-				       struct acpi_hest_generic_data *gdata,
+static bool ghes_handle_memory_failure(struct acpi_hest_generic_data *gdata,
 				       int sev)
 {
 	unsigned long pfn;
@@ -522,10 +522,10 @@ static bool ghes_do_proc(struct ghes *ghes,
 {
 	int sev, sec_sev;
 	struct acpi_hest_generic_data *gdata;
-	bool work_queued = false;
 	guid_t *sec_type;
 	const guid_t *fru_id = &guid_null;
 	char *fru_text = "";
+	bool queued = false;
 
 	sev = ghes_severity(estatus->error_severity);
 	apei_estatus_for_each_section(estatus, gdata) {
@@ -543,8 +543,7 @@ static bool ghes_do_proc(struct ghes *ghes,
 			ghes_edac_report_mem_error(sev, mem_err);
 
 			arch_apei_report_mem_error(sev, mem_err);
-			if (ghes_handle_memory_failure(ghes, gdata, sev))
-				work_queued = true;
+			queued = ghes_handle_memory_failure(gdata, sev);
 		}
 		else if (guid_equal(sec_type, &CPER_SEC_PCIE)) {
 			ghes_handle_aer(gdata);
@@ -562,7 +561,7 @@ static bool ghes_do_proc(struct ghes *ghes,
 		}
 	}
 
-	return work_queued;
+	return queued;
 }
 
 static void __ghes_print_estatus(const char *pfx,
