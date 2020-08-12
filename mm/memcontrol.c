@@ -1503,8 +1503,12 @@ static const struct memory_stat memory_stats[] = {
 #endif
 
 	/* The memory events */
-	{ "workingset_refault", 1, WORKINGSET_REFAULT },
-	{ "workingset_activate", 1, WORKINGSET_ACTIVATE },
+	{ "workingset_refault_anon", 1, WORKINGSET_REFAULT_ANON },
+	{ "workingset_refault_file", 1, WORKINGSET_REFAULT_FILE },
+	{ "workingset_activate_anon", 1, WORKINGSET_ACTIVATE_ANON },
+	{ "workingset_activate_file", 1, WORKINGSET_ACTIVATE_FILE },
+	{ "workingset_restore_anon", 1, WORKINGSET_RESTORE_ANON },
+	{ "workingset_restore_file", 1, WORKINGSET_RESTORE_FILE },
 	{ "workingset_nodereclaim", 1, WORKINGSET_NODERECLAIM },
 };
 
