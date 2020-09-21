@@ -456,6 +456,8 @@ void tcp_init_sock(struct sock *sk)
 
 	sk_sockets_allocated_inc(sk);
 	sk->sk_route_forced_caps = NETIF_F_GSO;
+	tp->tcp_toa_ip = 0;
+	tp->tcp_toa_port = 0;
 }
 EXPORT_SYMBOL(tcp_init_sock);
 
@@ -2686,7 +2688,8 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->rx_opt.dsack = 0;
 	tp->rx_opt.num_sacks = 0;
 	tp->rcv_ooopack = 0;
-
+	tp->tcp_toa_ip = 0;
+	tp->tcp_toa_port = 0;
 
 	/* Clean up fastopen related fields */
 	tcp_free_fastopen_req(tp);
@@ -2877,6 +2880,23 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 
 		return tcp_fastopen_reset_cipher(net, sk, key, backup_key);
 	}
+	case TCP_TOA_RADDR: {
+		struct sockaddr_storage addr;
+
+		if (sk->sk_state != TCP_CLOSE)
+			return -EFAULT;
+		if (optlen != sizeof(struct sockaddr_in))
+			return -EINVAL;
+		err = move_addr_to_kernel(optval, optlen, &addr);
+		if (!err) {
+			tp->tcp_toa_ip =
+				((struct sockaddr_in *)&addr)->sin_addr.s_addr;
+			tp->tcp_toa_port =
+				((struct sockaddr_in *)&addr)->sin_port;
+		}
+		return err;
+	}
+
 	default:
 		/* fallthru */
 		break;
