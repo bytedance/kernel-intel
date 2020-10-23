@@ -458,6 +458,7 @@ void tcp_init_sock(struct sock *sk)
 	sk->sk_route_forced_caps = NETIF_F_GSO;
 	tp->tcp_toa_ip = 0;
 	tp->tcp_toa_port = 0;
+	tp->tcpi_probe0_times = 0;
 }
 EXPORT_SYMBOL(tcp_init_sock);
 
@@ -2691,6 +2692,7 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->rcv_ooopack = 0;
 	tp->tcp_toa_ip = 0;
 	tp->tcp_toa_port = 0;
+	tp->tcpi_probe0_times = 0;
 
 	/* Clean up fastopen related fields */
 	tcp_free_fastopen_req(tp);
@@ -3367,6 +3369,8 @@ void tcp_get_info(struct sock *sk, struct tcp_info *info)
 		jiffies_to_msecs(tp->tcpi_srcv_ack_stamp);
 	info->tcpi_firstdata_stamp =
 		jiffies_to_msecs(tp->tcpi_firstdata_stamp);
+	info->tcpi_probe0_times =
+		tp->tcpi_probe0_times;
 	unlock_sock_fast(sk, slow);
 }
 EXPORT_SYMBOL_GPL(tcp_get_info);
