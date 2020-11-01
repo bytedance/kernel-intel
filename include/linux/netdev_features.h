@@ -200,8 +200,8 @@ static inline int find_next_netdev_feature(u64 feature, unsigned long start)
 				 NETIF_F_FSO)
 
 /* List of features with software fallbacks. */
-#define NETIF_F_GSO_SOFTWARE	(NETIF_F_ALL_TSO | \
-				 NETIF_F_GSO_SCTP)
+#define NETIF_F_GSO_SOFTWARE	(NETIF_F_ALL_TSO | NETIF_F_GSO_SCTP |	     \
+				 NETIF_F_GSO_UDP_L4)
 
 /*
  * If one device supports one of these features, then enable them
