@@ -856,8 +856,10 @@ void virtio_transport_release(struct vsock_sock *vsk)
 	if (sk->sk_type == SOCK_STREAM)
 		remove_sock = virtio_transport_close(vsk);
 
-	if (remove_sock)
+	if (remove_sock) {
+		sock_set_flag(sk, SOCK_DONE);
 		virtio_transport_remove_sock(vsk);
+	}
 }
 EXPORT_SYMBOL_GPL(virtio_transport_release);
 
