@@ -7,6 +7,8 @@
 #include <linux/fs.h>
 #include <asm/siginfo.h>
 
+#ifdef CONFIG_COREDUMP
+
 /*
  * These are the only things you should do on a core-file: use only these
  * functions to write out all the necessary info.
@@ -18,7 +20,6 @@ extern int dump_emit(struct coredump_params *cprm, const void *addr, int nr);
 extern int dump_align(struct coredump_params *cprm, int align);
 int dump_user_range(struct coredump_params *cprm, unsigned long start,
 		    unsigned long len);
-#ifdef CONFIG_COREDUMP
 extern void do_coredump(const kernel_siginfo_t *siginfo);
 #else
 static inline void do_coredump(const kernel_siginfo_t *siginfo) {}
