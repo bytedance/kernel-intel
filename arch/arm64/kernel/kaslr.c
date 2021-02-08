@@ -18,6 +18,7 @@
 #include <asm/mmu.h>
 #include <asm/pgtable.h>
 #include <asm/sections.h>
+#include <asm/setup.h>
 
 u64 __ro_after_init module_alloc_base;
 u16 __initdata memstart_offset_seed;
@@ -70,12 +71,11 @@ out:
  * containing function pointers) to be reinitialized, and zero-initialized
  * .bss variables will be reset to 0.
  */
-u64 __init kaslr_early_init(u64 dt_phys)
+u64 __init kaslr_early_init(void)
 {
 	void *fdt;
 	u64 seed, offset, mask, module_range;
 	const u8 *cmdline, *str;
-	int size;
 
 	/*
 	 * Set a reasonable default for module_alloc_base in case
@@ -89,8 +89,7 @@ u64 __init kaslr_early_init(u64 dt_phys)
 	 * and proceed with KASLR disabled. We will make another
 	 * attempt at mapping the FDT in setup_machine()
 	 */
-	early_fixmap_init();
-	fdt = fixmap_remap_fdt(dt_phys, &size, PAGE_KERNEL);
+	fdt = get_early_fdt_ptr();
 	if (!fdt)
 		return 0;
 
