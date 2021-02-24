@@ -108,7 +108,7 @@ int notrace unwind_frame(struct task_struct *tsk, struct stackframe *frame)
 	 * both are NULL.
 	 */
 	if (!frame->fp && !frame->pc)
-		return -EINVAL;
+		return -ENOENT;
 
 	return 0;
 }
