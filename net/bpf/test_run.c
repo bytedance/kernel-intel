@@ -40,8 +40,12 @@ static int bpf_test_run(struct bpf_prog *prog, void *ctx, u32 repeat,
 	preempt_disable();
 	time_start = ktime_get_ns();
 	for (i = 0; i < repeat; i++) {
-		bpf_cgroup_storage_set(storage);
+		ret = bpf_cgroup_storage_set(storage);
+		if (ret)
+			break;
 		*retval = BPF_PROG_RUN(prog, ctx);
+
+		bpf_cgroup_storage_unset();
 
 		if (signal_pending(current)) {
 			ret = -EINTR;
