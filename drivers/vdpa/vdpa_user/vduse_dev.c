@@ -417,7 +417,7 @@ static int vduse_dev_get_vq_state(struct vduse_dev *dev,
 
 	ret = vduse_dev_msg_sync(dev, &msg);
 	if (!ret)
-		state->avail_index = msg.resp.vq_state.avail_idx;
+		state->split.avail_index = msg.resp.vq_state.avail_idx;
 
 	return ret;
 }
@@ -431,7 +431,7 @@ static int vduse_dev_set_vq_state(struct vduse_dev *dev,
 	msg.req.type = VDUSE_SET_VQ_STATE;
 	msg.req.request_id = vduse_dev_get_request_id(dev);
 	msg.req.vq_state.index = vq->index;
-	msg.req.vq_state.avail_idx = state->avail_index;
+	msg.req.vq_state.avail_idx = state->split.avail_index;
 
 	return vduse_dev_msg_sync(dev, &msg);
 }
@@ -702,7 +702,7 @@ static int vduse_vdpa_set_vq_state(struct vdpa_device *vdpa, u16 idx,
 	if (!vduse_dev_req_cached(dev, VDUSE_SET_VQ_STATE))
 		return vduse_dev_set_vq_state(dev, vq, state);
 
-	vq->avail_index = state->avail_index;
+	vq->avail_index = state->split.avail_index;
 
 	return 0;
 }
