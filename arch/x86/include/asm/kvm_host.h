@@ -1300,6 +1300,7 @@ struct kvm_arch_async_pf {
 	bool direct_map;
 };
 
+extern bool __read_mostly enable_apicv;
 extern struct kvm_x86_ops *kvm_x86_ops;
 extern struct kmem_cache *x86_fpu_cache;
 

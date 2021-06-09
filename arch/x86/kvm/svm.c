@@ -356,11 +356,12 @@ module_param(npt, int, S_IRUGO);
 static int nested = true;
 module_param(nested, int, S_IRUGO);
 
-/* enable / disable AVIC */
-static int avic;
-#ifdef CONFIG_X86_LOCAL_APIC
-module_param(avic, int, S_IRUGO);
-#endif
+/*
+ * enable / disable AVIC.  Because the defaults differ for APICv
+ * support between VMX and SVM we cannot use module_param_named.
+ */
+static bool avic;
+module_param(avic, bool, 0444);
 
 /* enable/disable Next RIP Save */
 static int nrips = true;
@@ -1441,16 +1442,12 @@ static __init int svm_hardware_setup(void)
 			nrips = false;
 	}
 
-	if (avic) {
-		if (!npt_enabled ||
-		    !boot_cpu_has(X86_FEATURE_AVIC) ||
-		    !IS_ENABLED(CONFIG_X86_LOCAL_APIC)) {
-			avic = false;
-		} else {
-			pr_info("AVIC enabled\n");
+	enable_apicv = avic = avic && npt_enabled && boot_cpu_has(X86_FEATURE_AVIC);
 
-			amd_iommu_register_ga_log_notifier(&avic_ga_log_notifier);
-		}
+	if (enable_apicv) {
+		pr_info("AVIC enabled\n");
+
+		amd_iommu_register_ga_log_notifier(&avic_ga_log_notifier);
 	}
 
 	if (vls) {
@@ -1995,7 +1992,7 @@ static void avic_vm_destroy(struct kvm *kvm)
 	unsigned long flags;
 	struct kvm_svm *kvm_svm = to_kvm_svm(kvm);
 
-	if (!avic)
+	if (!enable_apicv)
 		return;
 
 	if (kvm_svm->avic_logical_id_table_page)
@@ -2024,7 +2021,7 @@ static int avic_vm_init(struct kvm *kvm)
 	struct page *l_page;
 	u32 vm_id;
 
-	if (!avic)
+	if (!enable_apicv)
 		return 0;
 
 	/* Allocating physical APIC ID table (4KB) */
@@ -2070,13 +2067,13 @@ free_avic:
 
 static int svm_vm_init(struct kvm *kvm)
 {
-	if (avic) {
+	if (enable_apicv) {
 		int ret = avic_vm_init(kvm);
 		if (ret)
 			return ret;
 	}
 
-	kvm_apicv_init(kvm, avic);
+	kvm_apicv_init(kvm, enable_apicv);
 	return 0;
 }
 
@@ -2202,7 +2199,7 @@ static int avic_init_vcpu(struct vcpu_svm *svm)
 	int ret;
 	struct kvm_vcpu *vcpu = &svm->vcpu;
 
-	if (!avic || !irqchip_in_kernel(vcpu->kvm))
+	if (!enable_apicv || !irqchip_in_kernel(vcpu->kvm))
 		return 0;
 
 	ret = avic_init_backing_page(&svm->vcpu);
@@ -5248,7 +5245,7 @@ static void svm_hwapic_isr_update(struct kvm_vcpu *vcpu, int max_isr)
 
 static void svm_toggle_avic_for_irq_window(struct kvm_vcpu *vcpu, bool activate)
 {
-	if (!avic || !lapic_in_kernel(vcpu))
+	if (!enable_apicv || !lapic_in_kernel(vcpu))
 		return;
 
 	srcu_read_unlock(&vcpu->kvm->srcu, vcpu->srcu_idx);
@@ -5295,7 +5292,7 @@ static void svm_refresh_apicv_exec_ctrl(struct kvm_vcpu *vcpu)
 	struct vmcb *vmcb = svm->vmcb;
 	bool activated = kvm_vcpu_apicv_active(vcpu);
 
-	if (!avic)
+	if (!enable_apicv)
 		return;
 
 	if (activated) {
@@ -6106,7 +6103,7 @@ static void svm_set_supported_cpuid(u32 func, struct kvm_cpuid_entry2 *entry)
 {
 	switch (func) {
 	case 0x1:
-		if (avic)
+		if (enable_apicv)
 			entry->ecx &= ~bit(X86_FEATURE_X2APIC);
 		break;
 	case 0x80000001:
