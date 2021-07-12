@@ -17,18 +17,20 @@
 static int bpf_test_run(struct bpf_prog *prog, void *ctx, u32 repeat,
 			u32 *retval, u32 *time)
 {
-	struct bpf_cgroup_storage *storage[MAX_BPF_CGROUP_STORAGE_TYPE] = { NULL };
+	struct bpf_prog_array_item item = {.prog = prog};
+	struct bpf_run_ctx *old_ctx;
+	struct bpf_cg_run_ctx run_ctx;
 	enum bpf_cgroup_storage_type stype;
 	u64 time_start, time_spent = 0;
 	int ret = 0;
 	u32 i;
 
 	for_each_cgroup_storage_type(stype) {
-		storage[stype] = bpf_cgroup_storage_alloc(prog, stype);
-		if (IS_ERR(storage[stype])) {
-			storage[stype] = NULL;
+		item.cgroup_storage[stype] = bpf_cgroup_storage_alloc(prog, stype);
+		if (IS_ERR(item.cgroup_storage[stype])) {
+			item.cgroup_storage[stype] = NULL;
 			for_each_cgroup_storage_type(stype)
-				bpf_cgroup_storage_free(storage[stype]);
+				bpf_cgroup_storage_free(item.cgroup_storage[stype]);
 			return -ENOMEM;
 		}
 	}
@@ -39,13 +41,10 @@ static int bpf_test_run(struct bpf_prog *prog, void *ctx, u32 repeat,
 	rcu_read_lock();
 	preempt_disable();
 	time_start = ktime_get_ns();
+	old_ctx = bpf_set_run_ctx(&run_ctx.run_ctx);
 	for (i = 0; i < repeat; i++) {
-		ret = bpf_cgroup_storage_set(storage);
-		if (ret)
-			break;
+		run_ctx.prog_item = &item;
 		*retval = BPF_PROG_RUN(prog, ctx);
-
-		bpf_cgroup_storage_unset();
 
 		if (signal_pending(current)) {
 			ret = -EINTR;
@@ -64,6 +63,7 @@ static int bpf_test_run(struct bpf_prog *prog, void *ctx, u32 repeat,
 			time_start = ktime_get_ns();
 		}
 	}
+	bpf_reset_run_ctx(old_ctx);
 	time_spent += ktime_get_ns() - time_start;
 	preempt_enable();
 	rcu_read_unlock();
@@ -72,7 +72,7 @@ static int bpf_test_run(struct bpf_prog *prog, void *ctx, u32 repeat,
 	*time = time_spent > U32_MAX ? U32_MAX : (u32)time_spent;
 
 	for_each_cgroup_storage_type(stype)
-		bpf_cgroup_storage_free(storage[stype]);
+		bpf_cgroup_storage_free(item.cgroup_storage[stype]);
 
 	return ret;
 }

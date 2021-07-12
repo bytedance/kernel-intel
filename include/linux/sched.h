@@ -61,6 +61,7 @@ struct signal_struct;
 struct task_delay_info;
 struct task_group;
 struct io_uring_task;
+struct bpf_run_ctx;
 
 /*
  * Task state bitmask. NOTE! These bits are also
@@ -1277,6 +1278,10 @@ struct task_struct {
 	/* Used by LSM modules for access restriction: */
 	void				*security;
 #endif
+ #ifdef CONFIG_BPF_SYSCALL
+	/* Used for BPF run context */
+	struct bpf_run_ctx		*bpf_ctx;
+ #endif
 
 #ifdef CONFIG_GCC_PLUGIN_STACKLEAK
 	unsigned long			lowest_stack;
