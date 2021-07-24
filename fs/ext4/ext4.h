@@ -1471,6 +1471,8 @@ struct ext4_sb_info {
 	unsigned int s_mb_free_pending;
 	struct list_head s_freed_data_list;	/* List of blocks to be freed
 						   after commit completed */
+	struct list_head s_discard_list;
+	struct work_struct s_discard_work;
 
 	/* tunables */
 	unsigned long s_stripe;
