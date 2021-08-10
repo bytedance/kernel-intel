@@ -159,8 +159,8 @@ static inline int bpf_cgroup_storage_set(struct bpf_cgroup_storage
 	int i, err = 0;
 
 	preempt_disable();
-	for (i = 0; i < BPF_CGROUP_STORAGE_NEST_MAX; i++) {
-		if (unlikely(this_cpu_read(bpf_cgroup_storage_info[i].task) != NULL))
+	for (i = BPF_CGROUP_STORAGE_NEST_MAX - 1; i >= 0; i--) {
+		if (likely(this_cpu_read(bpf_cgroup_storage_info[i].task) != current))
 			continue;
 
 		this_cpu_write(bpf_cgroup_storage_info[i].task, current);
