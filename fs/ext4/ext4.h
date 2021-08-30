@@ -1473,6 +1473,7 @@ struct ext4_sb_info {
 						   after commit completed */
 	struct list_head s_discard_list;
 	struct work_struct s_discard_work;
+	atomic_t s_retry_alloc_pending;
 
 	/* tunables */
 	unsigned long s_stripe;
