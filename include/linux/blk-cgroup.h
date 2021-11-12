@@ -621,9 +621,9 @@ static inline bool blkcg_bio_issue_check(struct request_queue *q,
 		if (cgroup_subsys_on_dfl(io_cgrp_subsys))
 			cgroup_rstat_updated(blkg->blkcg->css.cgroup, cpu);
 		put_cpu();
+		blkcg_bio_issue_init(bio);
 	}
 
-	blkcg_bio_issue_init(bio);
 
 	rcu_read_unlock();
 	return !throtl;
