@@ -354,6 +354,15 @@ int damon_start(struct damon_ctx **ctxs, int nr_ctxs)
 	return err;
 }
 
+static void kdamond_usleep(unsigned long usecs)
+{
+	/* See Documentation/timers/timers-howto.rst for the thresholds */
+	if (usecs > 20 * USEC_PER_MSEC)
+		schedule_timeout_idle(usecs_to_jiffies(usecs));
+	else
+		usleep_idle_range(usecs, usecs + 1);
+}
+
 /*
  * __damon_stop() - Stops monitoring of given context.
  * @ctx:	monitoring context
@@ -367,8 +376,7 @@ static int __damon_stop(struct damon_ctx *ctx)
 		ctx->kdamond_stop = true;
 		mutex_unlock(&ctx->kdamond_lock);
 		while (damon_kdamond_running(ctx))
-			usleep_range(ctx->sample_interval,
-					ctx->sample_interval * 2);
+			kdamond_usleep(ctx->sample_interval);
 		return 0;
 	}
 	mutex_unlock(&ctx->kdamond_lock);
@@ -631,14 +639,6 @@ static bool kdamond_need_stop(struct damon_ctx *ctx)
 	return true;
 }
 
-static void kdamond_usleep(unsigned long usecs)
-{
-	if (usecs > 100 * 1000)
-		schedule_timeout_idle(usecs_to_jiffies(usecs));
-	else
-		usleep_idle_range(usecs, usecs + 1);
-}
- 
 static void set_kdamond_stop(struct damon_ctx *ctx)
 {
 	mutex_lock(&ctx->kdamond_lock);
