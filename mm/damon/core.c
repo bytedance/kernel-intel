@@ -22,7 +22,10 @@
 #endif
 
 /* Get a random number in [l, r) */
-#define damon_rand(l, r) (l + prandom_u32_max(r - l))
+static inline unsigned long damon_rand(unsigned long l, unsigned long r)
+{
+	return l + prandom_u32_max(r - l);
+}
 
 static DEFINE_MUTEX(damon_lock);
 static int nr_running_ctxs;
