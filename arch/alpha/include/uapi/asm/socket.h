@@ -124,6 +124,8 @@
 
 #define SO_DETACH_REUSEPORT_BPF 68
 
+#define SO_TXREHASH		74
+
 #if !defined(__KERNEL__)
 
 #if __BITS_PER_LONG == 64

@@ -117,6 +117,8 @@
 
 #define SO_DETACH_REUSEPORT_BPF  0x0047
 
+#define SO_TXREHASH              0x0053
+
 #if !defined(__KERNEL__)
 
 
