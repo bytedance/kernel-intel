@@ -529,6 +529,18 @@ enum sk_pacing {
 #define rcu_dereference_sk_user_data(sk)	rcu_dereference(__sk_user_data((sk)))
 #define rcu_assign_sk_user_data(sk, ptr)	rcu_assign_pointer(__sk_user_data((sk)), ptr)
 
+static inline
+struct net *sock_net(const struct sock *sk)
+{
+	return read_pnet(&sk->sk_net);
+}
+
+static inline
+void sock_net_set(struct sock *sk, struct net *net)
+{
+	write_pnet(&sk->sk_net, net);
+}
+
 /*
  * SK_CAN_REUSE and SK_NO_REUSE on a socket mean that the socket is OK
  * or not whether his port will be reused by someone else. SK_FORCE_REUSE
@@ -1887,7 +1899,14 @@ static inline void sk_set_txhash(struct sock *sk)
 
 static inline void sk_rethink_txhash(struct sock *sk)
 {
-	if (sk->sk_txhash)
+	u8 rehash;
+
+	if (!sk->sk_txhash)
+		return;
+
+	rehash = READ_ONCE(sock_net(sk)->core.sysctl_txrehash);
+
+	if (rehash)
 		sk_set_txhash(sk);
 }
 
@@ -2521,18 +2540,6 @@ static inline void sk_eat_skb(struct sock *sk, struct sk_buff *skb)
 		return;
 	}
 	__kfree_skb(skb);
-}
-
-static inline
-struct net *sock_net(const struct sock *sk)
-{
-	return read_pnet(&sk->sk_net);
-}
-
-static inline
-void sock_net_set(struct sock *sk, struct net *net)
-{
-	write_pnet(&sk->sk_net, net);
 }
 
 static inline bool
