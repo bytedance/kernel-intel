@@ -343,6 +343,15 @@ forced to reset to their default values.
 
 Default : 0  (for compatibility reasons)
 
+txrehash
+--------
+
+Controls default hash rethink behaviour on listening socket when SO_TXREHASH
+option is set to SOCK_TXREHASH_DEFAULT (i. e. not overridden by setsockopt).
+
+If set to 1 (default), hash rethink is performed on listening socket.
+If set to 0, hash rethink is not performed.
+
 2. /proc/sys/net/unix - Parameters for Unix domain sockets
 ----------------------------------------------------------
 
