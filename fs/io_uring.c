@@ -10093,6 +10093,8 @@ static bool io_register_op_must_quiesce(int op)
 	case IORING_REGISTER_PROBE:
 	case IORING_REGISTER_PERSONALITY:
 	case IORING_UNREGISTER_PERSONALITY:
+	case IORING_REGISTER_ENABLE_RINGS:
+	case IORING_REGISTER_RESTRICTIONS:
 		return false;
 	default:
 		return true;
