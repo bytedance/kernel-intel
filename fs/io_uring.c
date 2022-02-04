@@ -10082,25 +10082,6 @@ static int io_register_enable_rings(struct io_ring_ctx *ctx)
 	return 0;
 }
 
-static bool io_register_op_must_quiesce(int op)
-{
-	switch (op) {
-	case IORING_UNREGISTER_FILES:
-	case IORING_REGISTER_FILES_UPDATE:
-	case IORING_REGISTER_EVENTFD:
-	case IORING_REGISTER_EVENTFD_ASYNC:
-	case IORING_UNREGISTER_EVENTFD:
-	case IORING_REGISTER_PROBE:
-	case IORING_REGISTER_PERSONALITY:
-	case IORING_UNREGISTER_PERSONALITY:
-	case IORING_REGISTER_ENABLE_RINGS:
-	case IORING_REGISTER_RESTRICTIONS:
-		return false;
-	default:
-		return true;
-	}
-}
-
 static int __io_uring_register(struct io_ring_ctx *ctx, unsigned opcode,
 			       void __user *arg, unsigned nr_args)
 	__releases(ctx->uring_lock)
@@ -10116,44 +10097,13 @@ static int __io_uring_register(struct io_ring_ctx *ctx, unsigned opcode,
 	if (percpu_ref_is_dying(&ctx->refs))
 		return -ENXIO;
 
-	if (io_register_op_must_quiesce(opcode)) {
-		percpu_ref_kill(&ctx->refs);
-
-		/*
-		 * Drop uring mutex before waiting for references to exit. If
-		 * another thread is currently inside io_uring_enter() it might
-		 * need to grab the uring_lock to make progress. If we hold it
-		 * here across the drain wait, then we can deadlock. It's safe
-		 * to drop the mutex here, since no new references will come in
-		 * after we've killed the percpu ref.
-		 */
-		mutex_unlock(&ctx->uring_lock);
-		do {
-			ret = wait_for_completion_interruptible(&ctx->ref_comp);
-			if (!ret)
-				break;
-			ret = io_run_task_work_sig();
-			if (ret < 0)
-				break;
-		} while (1);
-
-		mutex_lock(&ctx->uring_lock);
-
-		if (ret) {
-			percpu_ref_resurrect(&ctx->refs);
-			goto out_quiesce;
-		}
-	}
-
 	if (ctx->restricted) {
 		if (opcode >= IORING_REGISTER_LAST) {
-			ret = -EINVAL;
-			goto out;
+			return -EINVAL;
 		}
 
 		if (!test_bit(opcode, ctx->restrictions.register_op)) {
-			ret = -EACCES;
-			goto out;
+			return -EACCES;
 		}
 	}
 
@@ -10229,13 +10179,6 @@ static int __io_uring_register(struct io_ring_ctx *ctx, unsigned opcode,
 		break;
 	}
 
-out:
-	if (io_register_op_must_quiesce(opcode)) {
-		/* bring the ctx back to life */
-		percpu_ref_reinit(&ctx->refs);
-out_quiesce:
-		reinit_completion(&ctx->ref_comp);
-	}
 	return ret;
 }
 
