@@ -35,6 +35,7 @@ enum memcg_stat_item {
 #ifdef CONFIG_MEMCG_BGD_RECLAIM
 	MEMCG_BGD_RECLAIM,
 #endif
+	MEMCG_KMEM,
 	MEMCG_NR_STAT,
 };
 
