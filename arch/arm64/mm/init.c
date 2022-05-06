@@ -53,6 +53,33 @@ EXPORT_SYMBOL(memstart_addr);
 phys_addr_t arm64_dma_phys_limit __ro_after_init;
 
 #ifdef CONFIG_KEXEC_CORE
+
+/* Current arm64 boot protocol requires 2MB alignment */
+#define CRASH_ALIGN			SZ_2M
+
+#define CRASH_ADDR_LOW_MAX		arm64_dma_phys_limit
+#define CRASH_ADDR_HIGH_MAX		(PHYS_MASK + 1)
+
+static int __init reserve_crashkernel_low(unsigned long long low_size)
+{
+	unsigned long long low_base;
+
+	low_base = memblock_phys_alloc_range(low_size, CRASH_ALIGN, 0, CRASH_ADDR_LOW_MAX);
+	if (!low_base) {
+		pr_err("cannot allocate crashkernel low memory (size:0x%llx).\n", low_size);
+		return -ENOMEM;
+	}
+
+	pr_info("crashkernel low memory reserved: 0x%08llx - 0x%08llx (%lld MB)\n",
+		low_base, low_base + low_size, low_size >> 20);
+
+	crashk_low_res.start = low_base;
+	crashk_low_res.end   = low_base + low_size - 1;
+	insert_resource(&iomem_resource, &crashk_low_res);
+
+	return 0;
+}
+
 /*
  * reserve_crashkernel() - reserves memory for crash kernel
  *
@@ -63,19 +90,36 @@ phys_addr_t arm64_dma_phys_limit __ro_after_init;
 static void __init reserve_crashkernel(void)
 {
 	unsigned long long crash_base, crash_size;
+	unsigned long long crash_low_size = 0;
+	unsigned long long crash_max = CRASH_ADDR_LOW_MAX;
 	int ret;
 
+	/* crashkernel=X[@offset] */
 	ret = parse_crashkernel(boot_command_line, memblock_phys_mem_size(),
 				&crash_size, &crash_base);
-	/* no crashkernel= or invalid value specified */
-	if (ret || !crash_size)
+	if (ret == -ENOENT) {
+		ret = parse_crashkernel_high(boot_command_line, 0, &crash_size, &crash_base);
+		if (ret || !crash_size)
+			return;
+		/*
+		 * crashkernel=Y,low can be specified or not, but invalid value
+		 * is not allowed.
+		 */
+		ret = parse_crashkernel_low(boot_command_line, 0, &crash_low_size, &crash_base);
+		if (ret && (ret != -ENOENT))
+			return;
+		crash_max = CRASH_ADDR_HIGH_MAX;
+	} else if (ret || !crash_size) {
+		/* The specified value is invalid */
 		return;
+	}
+
 
 	crash_size = PAGE_ALIGN(crash_size);
 
 	if (crash_base == 0) {
 		/* Current arm64 boot protocol requires 2MB alignment */
-		crash_base = memblock_find_in_range(0, ARCH_LOW_ADDRESS_LIMIT,
+		crash_base = memblock_find_in_range(0, crash_max,
 				crash_size, SZ_2M);
 		if (crash_base == 0) {
 			pr_warn("cannot allocate crashkernel (size:0x%llx)\n",
@@ -101,8 +145,16 @@ static void __init reserve_crashkernel(void)
 	}
 	memblock_reserve(crash_base, crash_size);
 
+	if (crash_low_size && reserve_crashkernel_low(crash_low_size)) {
+		memblock_free(crash_base, crash_size);
+		return;
+	}
+
 	pr_info("crashkernel reserved: 0x%016llx - 0x%016llx (%lld MB)\n",
 		crash_base, crash_base + crash_size, crash_size >> 20);
+
+	if (crashk_low_res.end)
+		kmemleak_ignore_phys(crashk_low_res.start);
 
 	/*
 	 * The crashkernel memory will be removed from the kernel linear
