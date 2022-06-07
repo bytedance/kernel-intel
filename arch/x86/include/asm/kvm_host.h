@@ -566,6 +566,7 @@ struct kvm_vcpu_arch {
 	u64 ia32_misc_enable_msr;
 	u64 smbase;
 	u64 smi_count;
+	bool at_instruction_boundary;
 	bool tpr_access_reporting;
 	u64 ia32_xss;
 	u64 microcode_version;
@@ -1056,6 +1057,8 @@ struct kvm_vcpu_stat {
 	u64 hypercall_clock_pairing;
 #endif
 	u64 hypercall_send_ipi;
+	u64 preemption_reported;
+	u64 preemption_other;
 };
 
 struct x86_instruction_info;
