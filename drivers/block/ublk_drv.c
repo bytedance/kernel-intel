@@ -1464,7 +1464,7 @@ static int ublk_ctrl_cmd_validate(struct io_uring_cmd *cmd,
 			return -EINVAL;
 		if (!header->addr)
 			return -EINVAL;
-	};
+	}
 
 	return 0;
 }
@@ -1525,7 +1525,7 @@ static int ublk_ctrl_uring_cmd(struct io_uring_cmd *cmd,
 		break;
 	default:
 		break;
-	};
+	}
  out:
 	io_uring_cmd_done(cmd, ret, 0);
 	pr_devel("%s: cmd done ret %d cmd_op %x, dev id %d qid %d\n",
