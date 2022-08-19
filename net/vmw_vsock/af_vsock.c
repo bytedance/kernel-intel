@@ -1988,6 +1988,25 @@ out:
 	return err;
 }
 
+static int vsock_set_rcvlowat(struct sock *sk, int val)
+{
+	const struct vsock_transport *transport;
+	struct vsock_sock *vsk;
+
+	vsk = vsock_sk(sk);
+
+	if (val > vsk->buffer_size)
+		return -EINVAL;
+
+	transport = vsk->transport;
+
+	if (transport && transport->set_rcvlowat)
+		return transport->set_rcvlowat(vsk, val);
+
+	WRITE_ONCE(sk->sk_rcvlowat, val ? : 1);
+	return 0;
+}
+
 static const struct proto_ops vsock_stream_ops = {
 	.family = PF_VSOCK,
 	.owner = THIS_MODULE,
@@ -2007,6 +2026,7 @@ static const struct proto_ops vsock_stream_ops = {
 	.recvmsg = vsock_stream_recvmsg,
 	.mmap = sock_no_mmap,
 	.sendpage = sock_no_sendpage,
+	.set_rcvlowat = vsock_set_rcvlowat,
 };
 
 static int vsock_create(struct net *net, struct socket *sock,
