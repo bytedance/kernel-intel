@@ -707,6 +707,7 @@ void mvpp2_dbgfs_cleanup(struct mvpp2 *priv)
 
 void mvpp2_dbgfs_init(struct mvpp2 *priv, const char *name)
 {
+	static struct dentry *mvpp2_root;
 	struct dentry *mvpp2_dir;
 	int ret, i;
 
