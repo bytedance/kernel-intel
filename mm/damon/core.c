@@ -98,6 +98,7 @@ struct damon_target *damon_new_target(unsigned long id)
 	t->id = id;
 	t->nr_regions = 0;
 	INIT_LIST_HEAD(&t->regions_list);
+	INIT_LIST_HEAD(&t->list);
 
 	return t;
 }
