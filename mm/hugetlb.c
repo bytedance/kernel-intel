@@ -51,6 +51,8 @@ struct hstate hstates[HUGE_MAX_HSTATE];
  */
 static unsigned int minimum_order __read_mostly = UINT_MAX;
 
+int sysctl_hugepages_share_mempolicy_enable;
+
 __initdata LIST_HEAD(huge_boot_pages);
 
 /* for command line parsing */
@@ -3747,6 +3749,27 @@ static vm_fault_t hugetlb_vm_op_fault(struct vm_fault *vmf)
 	return 0;
 }
 
+#ifdef CONFIG_NUMA
+static int hugetlb_vm_op_set_policy(struct vm_area_struct *vma, struct mempolicy *mpol)
+{
+	struct inode *inode = file_inode(vma->vm_file);
+
+	return mpol_set_shared_policy(&HUGETLBFS_I(inode)->policy, vma, mpol);
+}
+
+static struct mempolicy *hugetlb_vm_op_get_policy(struct vm_area_struct *vma, unsigned long addr)
+{
+	struct inode *inode = file_inode(vma->vm_file);
+	pgoff_t index;
+
+	if (!(vma->vm_flags & VM_SHARED) || !sysctl_hugepages_share_mempolicy_enable)
+		return vma->vm_policy;
+
+	index = ((addr - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
+	return mpol_shared_policy_lookup(&HUGETLBFS_I(inode)->policy, index);
+}
+#endif
+
 /*
  * When a new function is introduced to vm_operations_struct and added
  * to hugetlb_vm_ops, please consider adding the function to shm_vm_ops.
@@ -3760,6 +3783,10 @@ const struct vm_operations_struct hugetlb_vm_ops = {
 	.close = hugetlb_vm_op_close,
 	.split = hugetlb_vm_op_split,
 	.pagesize = hugetlb_vm_op_pagesize,
+#ifdef CONFIG_NUMA
+	.set_policy = hugetlb_vm_op_set_policy,
+	.get_policy = hugetlb_vm_op_get_policy,
+#endif
 };
 
 static pte_t make_huge_pte(struct vm_area_struct *vma, struct page *page,
