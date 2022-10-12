@@ -3269,9 +3269,11 @@ static ssize_t ioc_qos_write(struct kernfs_open_file *of, char *input,
 		blk_stat_enable_accounting(ioc->rqos.q);
 		blk_queue_flag_set(QUEUE_FLAG_RQ_ALLOC_TIME, ioc->rqos.q);
 		ioc->enabled = true;
+		wbt_disable_default(disk->queue);
 	} else {
 		blk_queue_flag_clear(QUEUE_FLAG_RQ_ALLOC_TIME, ioc->rqos.q);
 		ioc->enabled = false;
+		wbt_enable_default(disk->queue);
 	}
 
 	if (user) {
