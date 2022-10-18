@@ -192,10 +192,8 @@ int kernfs_iop_getattr(const struct path *path, struct kstat *stat,
 	struct kernfs_root *root = kernfs_root(kn);
 
 	down_read(&root->kernfs_rwsem);
-	spin_lock(&inode->i_lock);
 	kernfs_refresh_inode(kn, inode);
 	generic_fillattr(inode, stat);
-	spin_unlock(&inode->i_lock);
 	up_read(&root->kernfs_rwsem);
 
 	return 0;
@@ -289,10 +287,8 @@ int kernfs_iop_permission(struct inode *inode, int mask)
 	root = kernfs_root(kn);
 
 	down_read(&root->kernfs_rwsem);
-	spin_lock(&inode->i_lock);
 	kernfs_refresh_inode(kn, inode);
 	ret = generic_permission(inode, mask);
-	spin_unlock(&inode->i_lock);
 	up_read(&root->kernfs_rwsem);
 
 	return ret;
