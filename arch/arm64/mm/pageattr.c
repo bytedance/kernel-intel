@@ -91,7 +91,8 @@ static int change_memory_common(unsigned long addr, int numpages,
 	 * If we are manipulating read-only permissions, apply the same
 	 * change to the linear mapping of the pages that back this VM area.
 	 */
-	if (rodata_full && (pgprot_val(set_mask) == PTE_RDONLY ||
+	if (rodata_enabled &&
+	    rodata_full && (pgprot_val(set_mask) == PTE_RDONLY ||
 			    pgprot_val(clear_mask) == PTE_RDONLY)) {
 		for (i = 0; i < area->nr_pages; i++) {
 			__change_memory_common((u64)page_address(area->pages[i]),
@@ -155,7 +156,7 @@ int set_direct_map_invalid_noflush(struct page *page)
 		.clear_mask = __pgprot(PTE_VALID),
 	};
 
-	if (!rodata_full)
+	if (!(rodata_enabled && rodata_full))
 		return 0;
 
 	return apply_to_page_range(&init_mm,
@@ -170,7 +171,7 @@ int set_direct_map_default_noflush(struct page *page)
 		.clear_mask = __pgprot(PTE_RDONLY),
 	};
 
-	if (!rodata_full)
+	if (!(rodata_enabled && rodata_full))
 		return 0;
 
 	return apply_to_page_range(&init_mm,
@@ -180,7 +181,7 @@ int set_direct_map_default_noflush(struct page *page)
 
 void __kernel_map_pages(struct page *page, int numpages, int enable)
 {
-	if (!debug_pagealloc_enabled() && !rodata_full)
+	if (!debug_pagealloc_enabled() && !(rodata_enabled && rodata_full))
 		return;
 
 	set_memory_valid((unsigned long)page_address(page), numpages, enable);
@@ -203,7 +204,7 @@ bool kernel_page_present(struct page *page)
 	pte_t *ptep;
 	unsigned long addr = (unsigned long)page_address(page);
 
-	if (!debug_pagealloc_enabled() && !rodata_full)
+	if (!debug_pagealloc_enabled() && !(rodata_enabled && rodata_full))
 		return true;
 
 	pgdp = pgd_offset_k(addr);
