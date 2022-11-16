@@ -93,6 +93,7 @@ static void __init reserve_crashkernel(void)
 	unsigned long long crash_base, crash_size;
 	unsigned long long crash_low_size = 0;
 	unsigned long long crash_max = CRASH_ADDR_LOW_MAX;
+	bool fixed_base = true;
 	int ret;
 
 	/* crashkernel=X[@offset] */
@@ -121,10 +122,23 @@ static void __init reserve_crashkernel(void)
 	crash_size = PAGE_ALIGN(crash_size);
 
 	if (crash_base == 0) {
+		fixed_base = false;
+retry:
 		/* Current arm64 boot protocol requires 2MB alignment */
 		crash_base = memblock_find_in_range(0, crash_max,
 				crash_size, SZ_2M);
 		if (crash_base == 0) {
+			/*
+			 * If the first attempt was for low memory, fall back to
+			 * high memory, the minimum required low memory will be
+			 * reserved later.
+			 */
+			if (!fixed_base && (crash_max == CRASH_ADDR_LOW_MAX)) {
+				crash_max = CRASH_ADDR_HIGH_MAX;
+				crash_low_size = DEFAULT_CRASH_KERNEL_LOW_SIZE;
+				goto retry;
+			}
+
 			pr_warn("cannot allocate crashkernel (size:0x%llx)\n",
 				crash_size);
 			return;
