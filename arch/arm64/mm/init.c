@@ -59,6 +59,7 @@ phys_addr_t arm64_dma_phys_limit __ro_after_init;
 
 #define CRASH_ADDR_LOW_MAX		arm64_dma_phys_limit
 #define CRASH_ADDR_HIGH_MAX		(PHYS_MASK + 1)
+#define DEFAULT_CRASH_KERNEL_LOW_SIZE	(128UL << 20)
 
 static int __init reserve_crashkernel_low(unsigned long long low_size)
 {
@@ -106,7 +107,9 @@ static void __init reserve_crashkernel(void)
 		 * is not allowed.
 		 */
 		ret = parse_crashkernel_low(boot_command_line, 0, &crash_low_size, &crash_base);
-		if (ret && (ret != -ENOENT))
+		if (ret == -ENOENT)
+			crash_low_size = DEFAULT_CRASH_KERNEL_LOW_SIZE;
+		if (ret)
 			return;
 		crash_max = CRASH_ADDR_HIGH_MAX;
 	} else if (ret || !crash_size) {
@@ -145,7 +148,7 @@ static void __init reserve_crashkernel(void)
 	}
 	memblock_reserve(crash_base, crash_size);
 
-	if ((crash_base >= CRASH_ADDR_LOW_MAX) &&
+	if ((crash_base > CRASH_ADDR_LOW_MAX - crash_low_size) &&
 	     crash_low_size && reserve_crashkernel_low(crash_low_size)) {
 		memblock_free(crash_base, crash_size);
 		return;
