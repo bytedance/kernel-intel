@@ -2215,6 +2215,9 @@ bool blk_throtl_bio(struct request_queue *q, struct blkcg_gq *blkg,
 	if (!tg->has_rules[rw])
 		return false;
 
+	if (bio->bi_opf & REQ_META)
+		return false;
+
 	spin_lock_irq(&q->queue_lock);
 
 	throtl_update_latency_buckets(td);
