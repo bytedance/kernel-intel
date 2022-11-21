@@ -320,6 +320,8 @@ int __ext4_handle_dirty_super(const char *where, unsigned int line,
 	struct buffer_head *bh = EXT4_SB(sb)->s_sbh;
 	int err = 0;
 
+	set_buffer_meta(bh);
+	set_buffer_prio(bh);
 	ext4_superblock_csum_set(sb);
 	if (ext4_handle_valid(handle)) {
 		err = jbd2_journal_dirty_metadata(handle, bh);
