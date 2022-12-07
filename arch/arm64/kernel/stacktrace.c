@@ -17,6 +17,9 @@
 #include <asm/stack_pointer.h>
 #include <asm/stacktrace.h>
 
+/* The bottom of kernel thread stacks points there */
+extern void *kthread_return_to_user;
+
 /*
  * AArch64 PCS assigns the frame pointer to x29.
  *
@@ -101,13 +104,16 @@ int notrace unwind_frame(struct task_struct *tsk, struct stackframe *frame)
 	}
 #endif /* CONFIG_FUNCTION_GRAPH_TRACER */
 
+
 	/*
-	 * Frames created upon entry from EL0 have NULL FP and PC values, so
+	 * 1. Frames created upon entry from EL0 have NULL FP and PC values, so
 	 * don't bother reporting these. Frames created by __noreturn functions
 	 * might have a valid FP even if PC is bogus, so only terminate where
 	 * both are NULL.
+	 * 2. kthreads created via copy_thread() (called from kthread_create())
+	 * will have a zero BP and a return value into ret_from_fork.
 	 */
-	if (!frame->fp && !frame->pc)
+	if (!frame->fp && (!frame->pc || frame->pc == (unsigned long)&kthread_return_to_user))
 		return -ENOENT;
 
 	return 0;
@@ -128,6 +134,38 @@ void notrace walk_stackframe(struct task_struct *tsk, struct stackframe *frame,
 	}
 }
 NOKPROBE_SYMBOL(walk_stackframe);
+
+static inline bool unwind_state_is_reliable(struct stackframe *frame)
+{
+	return __kernel_text_address(frame->pc);
+}
+
+
+int notrace walk_stackframe_reliable(struct task_struct *tsk, struct stackframe *frame,
+                     int (*fn)(struct stackframe *, void *), void *data)
+{
+	int ret = 0;
+
+	do {
+		if (!unwind_state_is_reliable(frame))
+			return -EINVAL;
+
+		ret = fn(frame, data);
+		if (ret)
+			return ret;
+
+		ret = unwind_frame(tsk, frame);
+		if (ret < 0)
+			break;
+	   } while (1);
+
+	if (ret == -ENOENT)
+		ret = 0;
+
+	return ret;
+}
+NOKPROBE_SYMBOL(walk_stackframe_reliable);
+
 
 #ifdef CONFIG_STACKTRACE
 struct stack_trace_data {
@@ -196,6 +234,41 @@ static noinline void __save_stack_trace(struct task_struct *tsk,
 
 	put_task_stack(tsk);
 }
+
+static noinline int __save_stack_trace_reliable(struct task_struct *tsk,
+        struct stack_trace *trace, unsigned int nosched)
+{
+	struct stack_trace_data data;
+	struct stackframe frame;
+	int ret;
+
+	/*
+	 * If the task doesn't have a stack (e.g., a zombie), the stack is
+	 * "reliably" empty.
+	 */
+	if (!try_get_task_stack(tsk))
+		return 0;
+
+	data.trace = trace;
+	data.skip = trace->skip;
+	data.no_sched_functions = nosched;
+
+	if (tsk != current) {
+		start_backtrace(&frame, thread_saved_fp(tsk),
+			thread_saved_pc(tsk));
+	} else {
+		start_backtrace(&frame,
+			(unsigned long)__builtin_frame_address(0),
+			(unsigned long)__save_stack_trace_reliable);
+	}
+
+	ret = walk_stackframe_reliable(tsk, &frame, save_trace, &data);
+
+	put_task_stack(tsk);
+
+	return ret ? ret : trace->nr_entries;
+}
+
 EXPORT_SYMBOL_GPL(save_stack_trace_tsk);
 
 void save_stack_trace_tsk(struct task_struct *tsk, struct stack_trace *trace)
@@ -209,4 +282,12 @@ void save_stack_trace(struct stack_trace *trace)
 }
 
 EXPORT_SYMBOL_GPL(save_stack_trace);
+
+int save_stack_trace_tsk_reliable(struct task_struct *tsk, struct stack_trace *trace)
+{
+	return __save_stack_trace_reliable(tsk, trace, 0);
+}
+
+EXPORT_SYMBOL_GPL(save_stack_trace_tsk_reliable);
+
 #endif
