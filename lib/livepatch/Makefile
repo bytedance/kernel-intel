@@ -13,3 +13,7 @@ obj-$(CONFIG_TEST_LIVEPATCH) += test_klp_atomic_replace.o \
 # Target modules to be livepatched require CC_FLAGS_FTRACE
 CFLAGS_test_klp_callbacks_busy.o	+= $(CC_FLAGS_FTRACE)
 CFLAGS_test_klp_callbacks_mod.o		+= $(CC_FLAGS_FTRACE)
+CFLAGS_test_klp_livepatch.o		+= $(CC_FLAGS_FTRACE)
+CFLAGS_test_klp_atomic_replace.o 	+= $(CC_FLAGS_FTRACE)
+CFLAGS_test_klp_callbacks_demo.o	+= $(CC_FLAGS_FTRACE)
+CFLAGS_test_klp_callbacks_demo2.o	+= $(CC_FLAGS_FTRACE)
