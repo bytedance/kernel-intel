@@ -91,6 +91,7 @@ CONFIG_BPF_UNSAFE_HELPER=y
 # CONFIG_PREEMPT_NONE is not set
 CONFIG_PREEMPT_VOLUNTARY=y
 # CONFIG_PREEMPT is not set
+CONFIG_SCHED_CORE=y
 
 #
 # CPU/Task time and stats accounting
