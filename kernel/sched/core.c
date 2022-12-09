@@ -76,6 +76,61 @@ __read_mostly int scheduler_running;
 
 DEFINE_STATIC_KEY_FALSE(__sched_core_enabled);
 
+/**
+ * rb_add() - insert @node into @tree
+ * @node: node to insert
+ * @tree: tree to insert @node into
+ * @less: operator defining the (partial) node order
+ */
+static __always_inline void
+rb_add(struct rb_node *node, struct rb_root *tree,
+	bool (*less)(struct rb_node *, const struct rb_node *))
+{
+	struct rb_node **link = &tree->rb_node;
+	struct rb_node *parent = NULL;
+
+	while (*link) {
+		parent = *link;
+		if (less(node, parent))
+			link = &parent->rb_left;
+		else
+			link = &parent->rb_right;
+	}
+
+	rb_link_node(node, parent, link);
+	rb_insert_color(node, tree);
+}
+
+/**
+ * rb_find_first() - find the first @key in @tree
+ * @key: key to match
+ * @tree: tree to search
+ * @cmp: operator defining node order
+ *
+ * Returns the leftmost node matching @key, or NULL.
+ */
+static __always_inline struct rb_node *
+rb_find_first(const void *key, const struct rb_root *tree,
+	      int (*cmp)(const void *key, const struct rb_node *))
+{
+	struct rb_node *node = tree->rb_node;
+	struct rb_node *match = NULL;
+
+	while (node) {
+		int c = cmp(key, node);
+
+		if (c <= 0) {
+			if (!c)
+				match = node;
+			node = node->rb_left;
+		} else if (c > 0) {
+			node = node->rb_right;
+		}
+	}
+
+	return match;
+}
+
 /* kernel prio, less is more */
 static inline int __task_prio(struct task_struct *p)
 {
