@@ -21,7 +21,7 @@
  * this function is only ever called from a RET and so omitting the landing pad
  * is perfectly fine.
  */
-SYM_CODE_START(__kernel_rt_sigreturn)
+SYM_CODE_START_USER(__kernel_rt_sigreturn)
 	.cfi_startproc
 	.cfi_signal_frame
 	.cfi_def_cfa	x29, 0
@@ -30,4 +30,4 @@ SYM_CODE_START(__kernel_rt_sigreturn)
 	mov	x8, #__NR_rt_sigreturn
 	svc	#0
 	.cfi_endproc
-SYM_CODE_END(__kernel_rt_sigreturn)
+SYM_CODE_END_USER(__kernel_rt_sigreturn)
