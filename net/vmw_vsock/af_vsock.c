@@ -1805,7 +1805,7 @@ static int vsock_stream_sendmsg(struct socket *sock, struct msghdr *msg,
 				vsk, msg,
 				len - total_written);
 		if (written < 0) {
-			err = -ENOMEM;
+			err = written;
 			goto out_err;
 		}
 
