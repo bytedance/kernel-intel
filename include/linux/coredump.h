@@ -18,7 +18,10 @@ struct coredump_params {
 	loff_t written;
 	loff_t pos;
 	loff_t to_skip;
+	unsigned long flags;
 };
+
+#define COREDUMP_USE_PIPE	0
 
 /*
  * These are the only things you should do on a core-file: use only these

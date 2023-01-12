@@ -41,6 +41,7 @@
 #include <linux/fs.h>
 #include <linux/path.h>
 #include <linux/timekeeping.h>
+#include <linux/splice.h>
 
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>
@@ -637,6 +638,8 @@ void do_coredump(const kernel_siginfo_t *siginfo)
 			goto fail_unlock;
 		}
 
+		set_bit(COREDUMP_USE_PIPE, &cprm.flags);
+
 		if (cprm.limit == 1) {
 			/* See umh_pipe_setup() which sets RLIMIT_CORE = 1.
 			 *
@@ -923,7 +926,12 @@ static int dump_emit_page(struct coredump_params *cprm, struct page *page)
 		return 0;
 	pos = file->f_pos;
 	iov_iter_bvec(&iter, WRITE, &bvec, 1, PAGE_SIZE);
-	n = __kernel_write_iter(cprm->file, &iter, &pos);
+
+	if (test_bit(COREDUMP_USE_PIPE, &cprm->flags))
+		n = vmsplice_to_pipe(file, &iter, 0);
+	else
+		n = __kernel_write_iter(cprm->file, &iter, &pos);
+
 	if (n != PAGE_SIZE)
 		return 0;
 	file->f_pos = pos;
