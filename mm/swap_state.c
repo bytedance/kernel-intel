@@ -135,6 +135,8 @@ int add_to_swap_cache(struct page *page, swp_entry_t entry,
 	unsigned long i, nr = hpage_nr_pages(page);
 	void *old;
 
+	xas_set_update(&xas, workingset_update_node);
+
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	VM_BUG_ON_PAGE(PageSwapCache(page), page);
 	VM_BUG_ON_PAGE(!PageSwapBacked(page), page);
@@ -188,6 +190,8 @@ void __delete_from_swap_cache(struct page *page,
 	int i, nr = hpage_nr_pages(page);
 	pgoff_t idx = swp_offset(entry);
 	XA_STATE(xas, &address_space->i_pages, idx);
+
+	xas_set_update(&xas, workingset_update_node);
 
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	VM_BUG_ON_PAGE(!PageSwapCache(page), page);
@@ -294,6 +298,8 @@ void clear_shadow_from_swap_cache(int type, unsigned long begin,
 		swp_entry_t entry = swp_entry(type, curr);
 		struct address_space *address_space = swap_address_space(entry);
 		XA_STATE(xas, &address_space->i_pages, curr);
+
+		xas_set_update(&xas, workingset_update_node);
 
 		xa_lock_irq(&address_space->i_pages);
 		xas_for_each(&xas, old, end) {
