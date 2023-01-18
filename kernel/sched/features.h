@@ -92,3 +92,11 @@ SCHED_FEAT(UTIL_EST, true)
 
 SCHED_FEAT(ALT_PERIOD, true)
 SCHED_FEAT(BASE_SLICE, true)
+#if defined(CONFIG_FAIR_GROUP_SCHED) && defined(CONFIG_SCHED_CORE)
+/*
+ * When we are looking for the highest priority task on the entire core,
+ * we prefer to choose the sched_entity with a larger weight value
+ * if they have same vruntime offset.
+ */
+SCHED_FEAT(PREFER_HIGH_WEIGHT, true)
+#endif
