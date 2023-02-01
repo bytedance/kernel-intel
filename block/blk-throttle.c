@@ -1353,7 +1353,7 @@ static void blk_throtl_dispatch_work_fn(struct work_struct *work)
 	if (!bio_list_empty(&bio_list_on_stack)) {
 		blk_start_plug(&plug);
 		while((bio = bio_list_pop(&bio_list_on_stack)))
-			generic_make_request(bio);
+			generic_make_request_nocheck(bio);
 		blk_finish_plug(&plug);
 	}
 }

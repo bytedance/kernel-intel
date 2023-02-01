@@ -1010,6 +1010,15 @@ end_io:
  */
 blk_qc_t generic_make_request(struct bio *bio)
 {
+	if (unlikely(!generic_make_request_checks(bio)))
+		return BLK_QC_T_NONE;;
+
+	return generic_make_request_nocheck(bio);
+}
+EXPORT_SYMBOL(generic_make_request);
+
+blk_qc_t generic_make_request_nocheck(struct bio *bio)
+{
 	/*
 	 * bio_list_on_stack[0] contains bios submitted by the current
 	 * make_request_fn.
@@ -1019,9 +1028,6 @@ blk_qc_t generic_make_request(struct bio *bio)
 	 */
 	struct bio_list bio_list_on_stack[2];
 	blk_qc_t ret = BLK_QC_T_NONE;
-
-	if (!generic_make_request_checks(bio))
-		goto out;
 
 	/*
 	 * We only want one ->make_request_fn to be active at a time, else
@@ -1098,7 +1104,6 @@ blk_qc_t generic_make_request(struct bio *bio)
 out:
 	return ret;
 }
-EXPORT_SYMBOL(generic_make_request);
 
 /**
  * direct_make_request - hand a buffer directly to its device driver for I/O
