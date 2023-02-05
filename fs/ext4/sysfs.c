@@ -32,6 +32,7 @@ typedef enum {
 	attr_pointer_ui,
 	attr_pointer_atomic,
 	attr_journal_task,
+	attr_delay_submit,
 } attr_id_t;
 
 typedef enum {
@@ -42,6 +43,7 @@ typedef enum {
 
 static const char proc_dirname[] = "fs/ext4";
 static struct proc_dir_entry *ext4_proc_root;
+bool __read_mostly ext4_delay_submit = true;
 
 struct ext4_attr {
 	struct attribute attr;
@@ -133,6 +135,22 @@ static ssize_t journal_task_show(struct ext4_sb_info *sbi, char *buf)
 		return snprintf(buf, PAGE_SIZE, "<none>\n");
 	return snprintf(buf, PAGE_SIZE, "%d\n",
 			task_pid_vnr(sbi->s_journal->j_task));
+}
+
+static ssize_t delay_submit_show(struct ext4_sb_info *sbi, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n", ext4_delay_submit);
+}
+
+static ssize_t delay_submit_store(struct ext4_sb_info *sbi,
+				  const char *buf, size_t count)
+{
+	int ret;
+
+	ret = kstrtobool(buf, &ext4_delay_submit);
+	if (ret)
+		return ret;
+	return count;
 }
 
 #define EXT4_ATTR(_name,_mode,_id)					\
@@ -249,6 +267,7 @@ EXT4_ATTR_FEATURE(casefold);
 EXT4_ATTR_FEATURE(verity);
 #endif
 EXT4_ATTR_FEATURE(metadata_csum_seed);
+EXT4_ATTR_FUNC(delay_submit, 0644);
 
 static struct attribute *ext4_feat_attrs[] = {
 	ATTR_LIST(lazy_itable_init),
@@ -264,6 +283,7 @@ static struct attribute *ext4_feat_attrs[] = {
 	ATTR_LIST(verity),
 #endif
 	ATTR_LIST(metadata_csum_seed),
+	ATTR_LIST(delay_submit),
 	NULL,
 };
 ATTRIBUTE_GROUPS(ext4_feat);
@@ -338,6 +358,8 @@ static ssize_t ext4_attr_show(struct kobject *kobj,
 		return print_tstamp(buf, sbi->s_es, s_last_error_time);
 	case attr_journal_task:
 		return journal_task_show(sbi, buf);
+	case attr_delay_submit:
+		return delay_submit_show(sbi, buf);
 	}
 
 	return 0;
@@ -372,6 +394,8 @@ static ssize_t ext4_attr_store(struct kobject *kobj,
 		return inode_readahead_blks_store(sbi, buf, len);
 	case attr_trigger_test_error:
 		return trigger_test_error(sbi, buf, len);
+	case attr_delay_submit:
+		return delay_submit_store(sbi, buf, len);
 	}
 	return 0;
 }

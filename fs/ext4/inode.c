@@ -2846,6 +2846,7 @@ retry:
 	 * started.
 	 */
 	mpd.do_map = 0;
+	mpd.io_submit.io_do_map = 0;
 	mpd.io_submit.io_end = ext4_init_io_end(inode, GFP_KERNEL);
 	if (!mpd.io_submit.io_end) {
 		ret = -ENOMEM;
@@ -2893,6 +2894,7 @@ retry:
 			break;
 		}
 		mpd.do_map = 1;
+		mpd.io_submit.io_do_map = ext4_delay_submit ? 1 : 0;
 
 		trace_ext4_da_write_pages(inode, mpd.first_page, mpd.wbc);
 		ret = mpage_prepare_extent_to_map(&mpd);

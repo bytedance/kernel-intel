@@ -338,18 +338,65 @@ static void ext4_end_bio(struct bio *bio)
 	}
 }
 
+void ext4_io_add_pending(struct ext4_io_submit *io)
+{
+	WARN_ON_ONCE(!io->io_bio);
+
+	if (!io->io_head)
+		io->io_head = io->io_bio;
+	if (io->io_tail) {
+		io->io_tail->bi_next = io->io_bio;
+		io->io_tail = io->io_bio;
+	} else
+		io->io_tail = io->io_bio;
+
+	io->io_bio = NULL;
+}
+
 void ext4_io_submit(struct ext4_io_submit *io)
 {
-	struct bio *bio = io->io_bio;
+	struct bio *cur = io->io_head;
+	struct bio *next;
+	int io_op_flags;
 
-	if (bio) {
-		int io_op_flags = io->io_wbc->sync_mode == WB_SYNC_ALL ?
+	while (cur) {
+		next = cur->bi_next;
+		cur->bi_next = NULL;
+		io_op_flags = io->io_wbc->sync_mode == WB_SYNC_ALL ?
+				  REQ_SYNC : 0;
+		cur->bi_write_hint = io->io_end->inode->i_write_hint;
+		bio_set_op_attrs(cur, REQ_OP_WRITE, io_op_flags);
+		submit_bio(cur);
+		cur = next;
+
+	}
+
+	if (io->io_bio) {
+		io_op_flags = io->io_wbc->sync_mode == WB_SYNC_ALL ?
 				  REQ_SYNC : 0;
 		io->io_bio->bi_write_hint = io->io_end->inode->i_write_hint;
 		bio_set_op_attrs(io->io_bio, REQ_OP_WRITE, io_op_flags);
 		submit_bio(io->io_bio);
 	}
 	io->io_bio = NULL;
+	io->io_head = NULL;
+	io->io_tail = NULL;
+}
+
+static inline bool ext4_io_has_bio(struct ext4_io_submit *io)
+{
+	if (io->io_bio || io->io_head)
+		return true;
+	else
+		return false;
+}
+
+void ext4_io_submit_pending(struct ext4_io_submit *io)
+{
+	if (io->io_do_map)
+		ext4_io_add_pending(io);
+	else
+		ext4_io_submit(io);
 }
 
 void ext4_io_submit_init(struct ext4_io_submit *io,
@@ -357,15 +404,41 @@ void ext4_io_submit_init(struct ext4_io_submit *io,
 {
 	io->io_wbc = wbc;
 	io->io_bio = NULL;
+	io->io_head = NULL;
+	io->io_tail = NULL;
 	io->io_end = NULL;
+	io->io_do_map = 0;
 }
 
+static struct bio *ext4_bio_alloc(struct ext4_io_submit *io,
+				  gfp_t gfp_mask, unsigned int nr_iovecs)
+{
+	struct bio *bio;
+	gfp_t tmp_mask = gfp_mask;
+
+	if (!ext4_io_has_bio(io))
+		return bio_alloc(gfp_mask, nr_iovecs);
+
+	tmp_mask &= ~__GFP_DIRECT_RECLAIM;
+	bio = bio_alloc(tmp_mask, nr_iovecs);
+
+	/*
+	 * If bio alloction failed, we must flush all pending bios before
+	 * try with __GFP_DIRECT_RECLAIM, otherwise deadlock may occur in
+	 * memory pressure.
+	 */
+	if (!bio && (gfp_mask & __GFP_DIRECT_RECLAIM)) {
+		ext4_io_submit(io);
+		bio = bio_alloc(gfp_mask, nr_iovecs);
+	}
+	return bio;
+}
 static int io_submit_init_bio(struct ext4_io_submit *io,
 			      struct buffer_head *bh)
 {
 	struct bio *bio;
 
-	bio = bio_alloc(GFP_NOIO, BIO_MAX_PAGES);
+	bio = ext4_bio_alloc(io, GFP_NOIO, BIO_MAX_PAGES);
 	if (!bio)
 		return -ENOMEM;
 	bio->bi_iter.bi_sector = bh->b_blocknr * (bh->b_size >> 9);
@@ -387,7 +460,7 @@ static int io_submit_add_bh(struct ext4_io_submit *io,
 
 	if (io->io_bio && bh->b_blocknr != io->io_next_block) {
 submit_and_retry:
-		ext4_io_submit(io);
+		ext4_io_submit_pending(io);
 	}
 	if (io->io_bio == NULL) {
 		ret = io_submit_init_bio(io, bh);
@@ -458,7 +531,7 @@ int ext4_bio_write_page(struct ext4_io_submit *io,
 			if (!buffer_mapped(bh))
 				clear_buffer_dirty(bh);
 			if (io->io_bio)
-				ext4_io_submit(io);
+				ext4_io_submit_pending(io);
 			continue;
 		}
 		if (buffer_new(bh))
@@ -485,7 +558,7 @@ int ext4_bio_write_page(struct ext4_io_submit *io,
 		 * a waiting mask (i.e. request guaranteed allocation) on the
 		 * first page of the bio.  Otherwise it can deadlock.
 		 */
-		if (io->io_bio)
+		if (ext4_io_has_bio(io))
 			gfp_flags = GFP_NOWAIT | __GFP_NOWARN;
 	retry_encrypt:
 		bounce_page = fscrypt_encrypt_pagecache_blocks(page, enc_bytes,
@@ -493,9 +566,10 @@ int ext4_bio_write_page(struct ext4_io_submit *io,
 		if (IS_ERR(bounce_page)) {
 			ret = PTR_ERR(bounce_page);
 			if (ret == -ENOMEM &&
-			    (io->io_bio || wbc->sync_mode == WB_SYNC_ALL)) {
+			    (ext4_io_has_bio(io) ||
+			     wbc->sync_mode == WB_SYNC_ALL)) {
 				gfp_flags = GFP_NOFS;
-				if (io->io_bio)
+				if (ext4_io_has_bio(io))
 					ext4_io_submit(io);
 				else
 					gfp_flags |= __GFP_NOFAIL;

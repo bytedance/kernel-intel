@@ -218,8 +218,11 @@ typedef struct ext4_io_end {
 struct ext4_io_submit {
 	struct writeback_control *io_wbc;
 	struct bio		*io_bio;
+	struct bio		*io_head;
+	struct bio		*io_tail;
 	ext4_io_end_t		*io_end;
 	sector_t		io_next_block;
+	int			io_do_map;
 };
 
 /*
@@ -2554,6 +2557,8 @@ extern void ext4_mark_bitmap_end(int start_bit, int end_bit, char *bitmap);
 extern int ext4_init_inode_table(struct super_block *sb,
 				 ext4_group_t group, int barrier);
 extern void ext4_end_bitmap_read(struct buffer_head *bh, int uptodate);
+
+extern bool ext4_delay_submit;
 
 /* mballoc.c */
 extern const struct seq_operations ext4_mb_seq_groups_ops;
