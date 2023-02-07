@@ -1188,6 +1188,8 @@ set_rcvbuf:
 			ret = -EINVAL;
 			break;
 		}
+		if ((u8)val == SOCK_TXREHASH_DEFAULT)
+			val = READ_ONCE(sock_net(sk)->core.sysctl_txrehash);
 		/* Paired with READ_ONCE() in tcp_rtx_synack()
 		 * and sk_getsockopt().
 		 */
@@ -2992,7 +2994,6 @@ void sock_init_data_uid(struct socket *sock, struct sock *sk, kuid_t uid)
 	sk->sk_pacing_rate = ~0UL;
 	WRITE_ONCE(sk->sk_pacing_shift, 10);
 	sk->sk_incoming_cpu = -1;
-	sk->sk_txrehash = SOCK_TXREHASH_DEFAULT;
 
 	sk_rx_queue_clear(sk);
 	/*
