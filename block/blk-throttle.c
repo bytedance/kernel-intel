@@ -99,6 +99,10 @@ struct throtl_service_queue {
 	struct list_head	queued[2];	/* throtl_qnode [READ/WRITE] */
 	unsigned int		nr_queued[2];	/* number of queued bios */
 
+	unsigned int		io_queued[2];	/* sync/async queued ios */
+	uint64_t                bytes_queued[2]; /* sync/async queued bytes */
+
+
 	/*
 	 * RB tree of active children throtl_grp's, which are sorted by
 	 * their ->disptime.
@@ -199,6 +203,10 @@ struct throtl_grp {
 
 	struct blkg_rwstat stat_bytes;
 	struct blkg_rwstat stat_ios;
+
+	wait_queue_head_t wq[2]; /* wait queues for sync/async io */
+	struct list_head walk_list;
+	int dispatched;
 };
 
 /* We measure latency for request size from <= 4k to >= 1M */
@@ -246,6 +254,12 @@ struct throtl_data
 };
 
 static void throtl_pending_timer_fn(struct timer_list *t);
+static void blk_tg_limit_wake(struct list_head *head);
+static void blk_tg_update_queued_stat(struct throtl_grp *tg,
+				      struct bio *bio,
+				      bool add);
+static void blk_tg_add_to_wake(struct list_head *head, struct throtl_grp *tg,
+			       bool *disp_sync, bool *disp_async);
 
 static inline struct throtl_grp *pd_to_tg(struct blkg_policy_data *pd)
 {
@@ -620,6 +634,11 @@ static void throtl_service_queue_init(struct throtl_service_queue *sq)
 	INIT_LIST_HEAD(&sq->queued[1]);
 	sq->pending_tree = RB_ROOT_CACHED;
 	timer_setup(&sq->pending_timer, throtl_pending_timer_fn, 0);
+
+	sq->bytes_queued[SYNC] = 0;
+	sq->bytes_queued[ASYNC] = 0;
+	sq->io_queued[SYNC] = 0;
+	sq->io_queued[ASYNC] = 0;
 }
 
 static struct blkg_policy_data *throtl_pd_alloc(gfp_t gfp,
@@ -661,6 +680,11 @@ static struct blkg_policy_data *throtl_pd_alloc(gfp_t gfp,
 	tg->latency_target_conf = DFL_LATENCY_TARGET;
 	tg->idletime_threshold = DFL_IDLE_THRESHOLD;
 	tg->idletime_threshold_conf = DFL_IDLE_THRESHOLD;
+
+	tg->dispatched = 0;
+	INIT_LIST_HEAD(&tg->walk_list);
+	init_waitqueue_head(&tg->wq[SYNC]);
+	init_waitqueue_head(&tg->wq[ASYNC]);
 
 	return &tg->pd;
 
@@ -1250,6 +1274,8 @@ static void throtl_add_bio_tg(struct bio *bio, struct throtl_qnode *qn,
 
 	throtl_qnode_add_bio(bio, qn, &sq->queued[rw]);
 
+	blk_tg_update_queued_stat(tg, bio, true);
+
 	sq->nr_queued[rw]++;
 	throtl_enqueue_tg(tg);
 }
@@ -1307,6 +1333,8 @@ static void tg_dispatch_one_bio(struct throtl_grp *tg, bool rw)
 	bio = throtl_pop_queued(&sq->queued[rw], &tg_to_put);
 	sq->nr_queued[rw]--;
 
+	blk_tg_update_queued_stat(tg, bio, false);
+
 	throtl_charge_bio(tg, bio);
 	bio_set_flag(bio, BIO_BPS_THROTTLED);
 
@@ -1333,7 +1361,7 @@ static void tg_dispatch_one_bio(struct throtl_grp *tg, bool rw)
 		blkg_put(tg_to_blkg(tg_to_put));
 }
 
-static int throtl_dispatch_tg(struct throtl_grp *tg)
+static int throtl_dispatch_tg(struct throtl_grp *tg, bool *sync, bool *async)
 {
 	struct throtl_service_queue *sq = &tg->service_queue;
 	unsigned int nr_reads = 0, nr_writes = 0;
@@ -1359,6 +1387,11 @@ static int throtl_dispatch_tg(struct throtl_grp *tg)
 		tg_dispatch_one_bio(tg, bio_data_dir(bio));
 		nr_writes++;
 
+		if (bio->bi_opf & (REQ_SYNC | REQ_META | REQ_PRIO))
+			*sync = true;
+		else
+			*async = true;
+
 		if (nr_writes >= max_nr_writes)
 			break;
 	}
@@ -1369,6 +1402,8 @@ static int throtl_dispatch_tg(struct throtl_grp *tg)
 static int throtl_select_dispatch(struct throtl_service_queue *parent_sq)
 {
 	unsigned int nr_disp = 0;
+	LIST_HEAD(tmp);
+	bool disp_sync = false, disp_async = false;
 
 	while (1) {
 		struct throtl_grp *tg = throtl_rb_first(parent_sq);
@@ -1382,7 +1417,12 @@ static int throtl_select_dispatch(struct throtl_service_queue *parent_sq)
 
 		throtl_dequeue_tg(tg);
 
-		nr_disp += throtl_dispatch_tg(tg);
+		nr_disp += throtl_dispatch_tg(tg, &disp_sync, &disp_async);
+
+		blk_tg_add_to_wake(&tmp, tg, &disp_sync, &disp_async);
+
+		disp_sync = false;
+		disp_async = false;
 
 		sq = &tg->service_queue;
 		if (sq->nr_queued[0] || sq->nr_queued[1])
@@ -1391,6 +1431,9 @@ static int throtl_select_dispatch(struct throtl_service_queue *parent_sq)
 		if (nr_disp >= throtl_quantum)
 			break;
 	}
+
+	if (!list_empty(&tmp))
+		blk_tg_limit_wake(&tmp);
 
 	return nr_disp;
 }
@@ -2330,6 +2373,125 @@ static inline void throtl_update_latency_buckets(struct throtl_data *td)
 }
 #endif
 
+void blk_tg_update_queued_stat(struct throtl_grp *tg,
+			       struct bio *bio,
+			       bool add)
+{
+	struct throtl_service_queue *sq = &tg->service_queue;
+	bool rw = bio_data_dir(bio);
+	unsigned int bio_size = throtl_bio_data_size(bio);
+	int index;
+
+	if (rw == READ)
+		return;
+	if (bio->bi_opf & (REQ_SYNC | REQ_META | REQ_PRIO))
+		index = SYNC;
+	else
+		index = ASYNC;
+	if (bio_flagged(bio, BIO_BPS_THROTTLED))
+		bio_size = 0;
+
+	if (add) {
+		sq->bytes_queued[index] += bio_size;
+		sq->io_queued[index]++;
+	} else {
+		WARN_ON_ONCE(sq->bytes_queued[index] < bio_size);
+		WARN_ON_ONCE(sq->io_queued[index] == 0);
+		sq->bytes_queued[index] -= bio_size;
+		sq->io_queued[index]--;
+	}
+
+}
+
+bool blk_tg_over_limit(struct throtl_grp *tg, int index)
+{
+	struct throtl_data *td;
+	struct blkcg_gq *blkg = tg_to_blkg(tg);
+	struct throtl_service_queue *sq = &tg->service_queue;
+	uint64_t bps;
+	unsigned int iops;
+
+	/* don't wait on intermediate node wait queue */
+	if (!list_empty(&blkg->blkcg->css.children))
+		return false;
+
+	td = tg->td;
+	bps = tg->bps[WRITE][td->limit_index];
+	iops = tg->iops[WRITE][td->limit_index];
+
+	if (bps != U64_MAX && sq->bytes_queued[index] > bps/2)
+		return true;
+	if (iops != UINT_MAX && sq->io_queued[index] >= (iops/2 + 1))
+		return true;
+	return false;
+}
+
+void blk_tg_add_to_wake(struct list_head *head, struct throtl_grp *tg,
+			bool *disp_sync, bool *disp_async)
+{
+	if (wq_has_sleeper(&tg->wq[SYNC]) && *disp_sync &&
+			   !blk_tg_over_limit(tg, SYNC)) {
+		if (list_empty(&tg->walk_list))
+			list_add_tail(&tg->walk_list, head);
+		tg->dispatched |= 1 << SYNC;
+	}
+
+	if (wq_has_sleeper(&tg->wq[ASYNC]) && *disp_async &&
+			   !blk_tg_over_limit(tg, ASYNC)) {
+		if (list_empty(&tg->walk_list))
+			list_add_tail(&tg->walk_list, head);
+		tg->dispatched |= 1 << ASYNC;
+	}
+}
+
+void blk_tg_limit_wait(struct request_queue *q, struct throtl_grp *tg,
+		       struct bio *bio)
+{
+	bool rw = bio_data_dir(bio);
+	int index;
+
+	if (rw == READ)
+		return;
+
+	if (bio_flagged(bio, BIO_BPS_THROTTLED))
+		return;
+
+	if (bio->bi_opf & (REQ_SYNC | REQ_META | REQ_PRIO))
+		index = SYNC;
+	else
+		index = ASYNC;
+
+	while (blk_tg_over_limit(tg, index)) {
+		DEFINE_WAIT(wait);
+
+		prepare_to_wait(&tg->wq[index], &wait,
+				TASK_UNINTERRUPTIBLE);
+		spin_unlock_irq(&q->queue_lock);
+		rcu_read_unlock();
+		schedule();
+		rcu_read_lock();
+		spin_lock_irq(&q->queue_lock);
+		finish_wait(&tg->wq[index], &wait);
+	}
+
+}
+
+void blk_tg_limit_wake(struct list_head *head)
+{
+
+	struct throtl_grp *tg, *next;
+
+	list_for_each_entry_safe(tg, next, head, walk_list) {
+		WARN_ON_ONCE(tg->dispatched == 0);
+		if (tg->dispatched & (1 << SYNC))
+			wake_up_all(&tg->wq[SYNC]);
+		if (tg->dispatched & (1 << ASYNC))
+			wake_up_all(&tg->wq[ASYNC]);
+		list_del_init(&tg->walk_list);
+		tg->dispatched = 0;
+	}
+}
+
 bool blk_throtl_bio(struct request_queue *q, struct blkcg_gq *blkg,
 		    struct bio *bio)
 {
@@ -2415,6 +2577,8 @@ again:
 			goto out_unlock;
 		}
 	}
+
+	blk_tg_limit_wait(q, tg, bio);
 
 	/* out-of-limit, queue to @tg */
 	throtl_log(sq, "[%c] bio. bdisp=%llu sz=%u bps=%llu iodisp=%u iops=%u queued=%d/%d",
