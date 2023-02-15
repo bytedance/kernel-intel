@@ -966,14 +966,6 @@ generic_make_request_checks(struct bio *bio)
 
 	if (!blkcg_bio_issue_check(q, bio))
 		return false;
-
-	if (!bio_flagged(bio, BIO_TRACE_COMPLETION)) {
-		trace_block_bio_queue(q, bio);
-		/* Now that enqueuing has been traced, we need to trace
-		 * completion as well.
-		 */
-		bio_set_flag(bio, BIO_TRACE_COMPLETION);
-	}
 	return true;
 
 not_supported:
@@ -1028,6 +1020,19 @@ blk_qc_t generic_make_request_nocheck(struct bio *bio)
 	 */
 	struct bio_list bio_list_on_stack[2];
 	blk_qc_t ret = BLK_QC_T_NONE;
+	struct request_queue *q;
+
+	q = bio->bi_disk->queue;
+	blk_cgroup_bio_start(bio);
+	blkcg_bio_issue_init(bio);
+	if (!bio_flagged(bio, BIO_TRACE_COMPLETION)) {
+		trace_block_bio_queue(q, bio);
+		/*
+		 * Now that enqueuing has been traced, we need to trace
+		 * completion as well.
+		 */
+		bio_set_flag(bio, BIO_TRACE_COMPLETION);
+	}
 
 	/*
 	 * We only want one ->make_request_fn to be active at a time, else

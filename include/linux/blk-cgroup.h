@@ -572,6 +572,38 @@ static inline void blkcg_bio_issue_init(struct bio *bio)
 	bio_issue_init(&bio->bi_issue, bio_sectors(bio));
 }
 
+static inline void blk_cgroup_bio_start(struct bio *bio)
+{
+	struct blkcg_gq *blkg = bio->bi_blkg;
+	struct blkg_iostat_set *bis;
+	int rwd, cpu;
+
+	if (op_is_discard(bio->bi_opf))
+		rwd = BLKG_IOSTAT_DISCARD;
+	else if (op_is_write(bio->bi_opf))
+		rwd = BLKG_IOSTAT_WRITE;
+	else
+		rwd = BLKG_IOSTAT_READ;
+
+	cpu = get_cpu();
+	bis = per_cpu_ptr(blkg->iostat_cpu, cpu);
+	u64_stats_update_begin(&bis->sync);
+
+	/*
+	 * If the bio is flagged with BIO_QUEUE_ENTERED it means this
+	 * is a split bio and we would have already accounted for the
+	 * size of the bio.
+	 */
+	if (!bio_flagged(bio, BIO_QUEUE_ENTERED))
+		bis->cur.bytes[rwd] += bio->bi_iter.bi_size;
+	bis->cur.ios[rwd]++;
+
+	u64_stats_update_end(&bis->sync);
+	if (cgroup_subsys_on_dfl(io_cgrp_subsys))
+		cgroup_rstat_updated(blkg->blkcg->css.cgroup, cpu);
+	put_cpu();
+}
+
 static inline bool blkcg_bio_issue_check(struct request_queue *q,
 					 struct bio *bio)
 {
@@ -592,38 +624,6 @@ static inline bool blkcg_bio_issue_check(struct request_queue *q,
 	blkg = bio->bi_blkg;
 
 	throtl = blk_throtl_bio(q, blkg, bio);
-
-	if (!throtl) {
-		struct blkg_iostat_set *bis;
-		int rwd, cpu;
-
-		if (op_is_discard(bio->bi_opf))
-			rwd = BLKG_IOSTAT_DISCARD;
-		else if (op_is_write(bio->bi_opf))
-			rwd = BLKG_IOSTAT_WRITE;
-		else
-			rwd = BLKG_IOSTAT_READ;
-
-		cpu = get_cpu();
-		bis = per_cpu_ptr(blkg->iostat_cpu, cpu);
-		u64_stats_update_begin(&bis->sync);
-
-		/*
-		 * If the bio is flagged with BIO_QUEUE_ENTERED it means this
-		 * is a split bio and we would have already accounted for the
-		 * size of the bio.
-		 */
-		if (!bio_flagged(bio, BIO_QUEUE_ENTERED))
-			bis->cur.bytes[rwd] += bio->bi_iter.bi_size;
-		bis->cur.ios[rwd]++;
-
-		u64_stats_update_end(&bis->sync);
-		if (cgroup_subsys_on_dfl(io_cgrp_subsys))
-			cgroup_rstat_updated(blkg->blkcg->css.cgroup, cpu);
-		put_cpu();
-		blkcg_bio_issue_init(bio);
-	}
-
 
 	rcu_read_unlock();
 	return !throtl;
