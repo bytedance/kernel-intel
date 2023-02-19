@@ -851,6 +851,23 @@ static void vduse_vdpa_set_config(struct vdpa_device *vdpa, unsigned int offset,
 	vduse_dev_set_config(dev, offset, buf, len);
 }
 
+static int vduse_vdpa_set_vq_affinity(struct vdpa_device *vdpa, u16 idx,
+				      const struct cpumask *cpu_mask)
+{
+	struct vduse_dev *dev = vdpa_to_vduse(vdpa);
+
+	cpumask_copy(&dev->vqs[idx]->affinity, cpu_mask);
+	return 0;
+}
+
+static const struct cpumask *
+vduse_vdpa_get_vq_affinity(struct vdpa_device *vdpa, u16 idx)
+{
+	struct vduse_dev *dev = vdpa_to_vduse(vdpa);
+
+	return &dev->vqs[idx]->affinity;
+}
+
 static void vduse_vdpa_set_irq_affinity(struct vdpa_device *vdpa,
 					struct irq_affinity *desc)
 {
@@ -918,6 +935,8 @@ static const struct vdpa_config_ops vduse_vdpa_config_ops = {
 	.get_config_size	= vduse_vdpa_get_config_size,
 	.get_config		= vduse_vdpa_get_config,
 	.set_config		= vduse_vdpa_set_config,
+	.set_vq_affinity        = vduse_vdpa_set_vq_affinity,
+	.get_vq_affinity        = vduse_vdpa_get_vq_affinity,
 	.set_irq_affinity       = vduse_vdpa_set_irq_affinity,
 	.set_map		= vduse_vdpa_set_map,
 	.free			= vduse_vdpa_free,
