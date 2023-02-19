@@ -59,6 +59,7 @@ struct vduse_virtqueue {
 	struct kobject kobj;
 	int irq_effective_cpu;
 	struct cpumask affinity;
+	bool automatic_affinity;
 	bool irq_use_wq;
 	u16 avail_index;
 	u32 num;
@@ -879,8 +880,12 @@ static void vduse_vdpa_set_irq_affinity(struct vdpa_device *vdpa,
 	if (!affd)
 		return;
 
-	for (i = 0; i < dev->vq_num; i++)
+	for (i = 0; i < dev->vq_num; i++) {
+		if (!dev->vqs[i]->automatic_affinity)
+			continue;
+
 		cpumask_copy(&dev->vqs[i]->affinity, &affd[i].mask);
+	}
 	kfree(affd);
 }
 
@@ -1546,6 +1551,36 @@ static ssize_t irq_affinity_store(struct vduse_virtqueue *vq,
 	return count;
 }
 
+static ssize_t vq_affinity_show(struct vduse_virtqueue *vq, char *buf)
+{
+	return sprintf(buf, "%*pb\n", cpumask_pr_args(&vq->affinity));
+}
+
+static ssize_t vq_affinity_store(struct vduse_virtqueue *vq,
+				     const char *buf, size_t count)
+{
+	cpumask_var_t new_value;
+	int ret;
+
+	if (!zalloc_cpumask_var(&new_value, GFP_KERNEL))
+		return -ENOMEM;
+
+	ret = cpumask_parse(buf, new_value);
+	if (ret)
+		goto free_mask;
+
+	ret = -EINVAL;
+	if (!cpumask_intersects(new_value, cpu_online_mask))
+		goto free_mask;
+
+	cpumask_copy(&vq->affinity, new_value);
+	vq->automatic_affinity = false;
+	ret = count;
+free_mask:
+	free_cpumask_var(new_value);
+	return ret;
+}
+
 static ssize_t irq_inject_store(struct vduse_virtqueue *vq,
 				const char *buf, size_t count)
 {
@@ -1578,6 +1613,8 @@ struct vq_sysfs_entry {
 
 static struct vq_sysfs_entry irq_affinity_attr = __ATTR_RW(irq_affinity);
 
+static struct vq_sysfs_entry vq_affinity_attr = __ATTR_RW(vq_affinity);
+
 static struct vq_sysfs_entry irq_inject_attr = __ATTR_WO(irq_inject);
 
 static struct vq_sysfs_entry kick_attr = __ATTR_WO(kick);
@@ -1586,6 +1623,7 @@ static struct vq_sysfs_entry irq_use_wq_attr = __ATTR_RW(irq_use_wq);
 
 static struct attribute *vq_attrs[] = {
 	&irq_affinity_attr.attr,
+	&vq_affinity_attr.attr,
 	&irq_inject_attr.attr,
 	&kick_attr.attr,
 	&irq_use_wq_attr.attr,
@@ -1679,6 +1717,7 @@ static int vduse_dev_init_vqs(struct vduse_dev *dev, u32 vq_align,
 		dev->vqs[i]->index = i;
 		dev->vqs[i]->dev = dev;
 		dev->vqs[i]->irq_effective_cpu = -1;
+		dev->vqs[i]->automatic_affinity = true;
 		cpumask_setall(&dev->vqs[i]->affinity);
 		/* virtio-fs driver already uses workqueue in irq handler */
 		dev->vqs[i]->irq_use_wq = (dev->device_id == VIRTIO_ID_FS) ?
