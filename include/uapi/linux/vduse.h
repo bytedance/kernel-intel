@@ -128,7 +128,9 @@ struct vduse_dev_config {
 	__u32 vq_num; /* the number of virtqueues */
 	__u32 vq_align; /* the allocation alignment of virtqueue's metadata */
 	__u32 config_size; /* the size of the configuration space */
-	__u32 reserved[5]; /* for future use */
+	__u32 reserved[4]; /* for future use */
+	__u16 reserved2; /* for future use */
+	__u16 vduse_dev_id; /* virtio device id for vduse usage */
 	__u16 req_cached; /* cached request mask */
 	__u16 dev_shm_size; /* size of device shared memory */
 	__u16 vq_shm_off; /* offset of virtqueue shared memory */
