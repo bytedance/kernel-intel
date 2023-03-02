@@ -458,6 +458,8 @@ struct sched_entity {
 	u64				prev_sum_exec_runtime;
 
 	u64				nr_migrations;
+	u64				prev_sleep_sum_runtime;
+	u64				dur_avg;
 
 	struct sched_statistics		statistics;
 

@@ -5515,6 +5515,18 @@ enqueue_throttle:
 
 static void set_next_buddy(struct sched_entity *se);
 
+static inline void dur_avg_update(struct task_struct *p, bool task_sleep)
+{
+	u64 dur;
+
+	if (!task_sleep)
+		return;
+
+	dur = p->se.sum_exec_runtime - p->se.prev_sleep_sum_runtime;
+	p->se.prev_sleep_sum_runtime = p->se.sum_exec_runtime;
+	update_avg(&p->se.dur_avg, dur);
+}
+
 /*
  * The dequeue_task method is called before nr_running is
  * decreased. We remove the task from the rbtree and
@@ -5585,6 +5597,7 @@ dequeue_throttle:
 		rq->next_balance = jiffies;
 
 	util_est_dequeue(&rq->cfs, p, task_sleep);
+	dur_avg_update(p, task_sleep);
 	hrtick_update(rq);
 }
 
@@ -5718,6 +5731,20 @@ static int wake_wide(struct task_struct *p)
 }
 
 /*
+ * If a task switches in and then voluntarily relinquishes the
+ * CPU quickly, it is regarded as a short duration task.
+ *
+ * SIS_SHORT tries to wake up the short wakee on current CPU. This
+ * aims to avoid race condition among CPUs due to frequent context
+ * switch.
+ */
+static inline int is_short_task(struct task_struct *p)
+{
+	return sched_feat(SIS_SHORT) && p->se.dur_avg &&
+	       (p->se.dur_avg < sysctl_sched_min_granularity);
+}
+
+/*
  * The purpose of wake_affine() is to quickly determine on which CPU we can run
  * soonest. For the purpose of speed we only consider the waking and previous
  * CPU.
@@ -5762,6 +5789,9 @@ wake_affine_weight(struct sched_domain *sd, struct task_struct *p,
 {
 	s64 this_eff_load, prev_eff_load;
 	unsigned long task_load;
+
+	if (is_short_task(p))
+		return nr_cpumask_bits;
 
 	this_eff_load = cpu_load(cpu_rq(this_cpu));
 
