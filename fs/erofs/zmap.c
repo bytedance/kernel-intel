@@ -15,7 +15,7 @@ int z_erofs_fill_inode(struct inode *inode)
 		vi->z_advise = 0;
 		vi->z_algorithmtype[0] = 0;
 		vi->z_algorithmtype[1] = 0;
-		vi->z_logical_clusterbits = LOG_BLOCK_SIZE;
+		vi->z_logical_clusterbits = inode->i_sb->s_blocksize_bits;
 		vi->z_physical_clusterbits[0] = vi->z_logical_clusterbits;
 		vi->z_physical_clusterbits[1] = vi->z_logical_clusterbits;
 		set_bit(EROFS_I_Z_INITED_BIT, &vi->flags);
@@ -54,14 +54,14 @@ static int z_erofs_fill_inode_lazy(struct inode *inode)
 	DBG_BUGON(vi->datalayout == EROFS_INODE_FLAT_COMPRESSION_LEGACY);
 
 	pos = ALIGN(erofs_iloc(inode) + vi->inode_isize + vi->xattr_isize, 8);
-	kaddr = erofs_read_metabuf(&buf, sb, erofs_blknr(pos),
+	kaddr = erofs_read_metabuf(&buf, sb, erofs_blknr(sb, pos),
 				   EROFS_KMAP_ATOMIC);
 	if (IS_ERR(kaddr)) {
 		err = PTR_ERR(kaddr);
 		goto out_unlock;
 	}
 
-	h = kaddr + erofs_blkoff(pos);
+	h = kaddr + erofs_blkoff(sb, pos);
 	vi->z_advise = le16_to_cpu(h->h_advise);
 	vi->z_algorithmtype[0] = h->h_algorithmtype & 15;
 	vi->z_algorithmtype[1] = h->h_algorithmtype >> 4;
@@ -73,11 +73,11 @@ static int z_erofs_fill_inode_lazy(struct inode *inode)
 		goto unmap_done;
 	}
 
-	vi->z_logical_clusterbits = LOG_BLOCK_SIZE + (h->h_clusterbits & 7);
+	vi->z_logical_clusterbits = sb->s_blocksize_bits + (h->h_clusterbits & 7);
 	vi->z_physical_clusterbits[0] = vi->z_logical_clusterbits +
 					((h->h_clusterbits >> 3) & 3);
 
-	if (vi->z_physical_clusterbits[0] != LOG_BLOCK_SIZE) {
+	if (vi->z_physical_clusterbits[0] != sb->s_blocksize_bits) {
 		erofs_err(sb, "unsupported physical clusterbits %u for nid %llu, please upgrade kernel",
 			  vi->z_physical_clusterbits[0], vi->nid);
 		err = -EOPNOTSUPP;
@@ -134,12 +134,12 @@ static int legacy_load_cluster_from_disk(struct z_erofs_maprecorder *m,
 	unsigned int advise, type;
 	int err;
 
-	err = z_erofs_reload_indexes(m, erofs_blknr(pos));
+	err = z_erofs_reload_indexes(m, erofs_blknr(inode->i_sb, pos));
 	if (err)
 		return err;
 
 	m->lcn = lcn;
-	di = m->kaddr + erofs_blkoff(pos);
+	di = m->kaddr + erofs_blkoff(inode->i_sb, pos);
 
 	advise = le16_to_cpu(di->di_advise);
 	type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &
@@ -250,7 +250,7 @@ static int compacted_load_cluster_from_disk(struct z_erofs_maprecorder *m,
 	const unsigned int lclusterbits = vi->z_logical_clusterbits;
 	const erofs_off_t ebase = sizeof(struct z_erofs_map_header) +
 		ALIGN(erofs_iloc(inode) + vi->inode_isize + vi->xattr_isize, 8);
-	const unsigned int totalidx = DIV_ROUND_UP(inode->i_size, EROFS_BLKSIZ);
+	unsigned int totalidx = erofs_iblks(inode);
 	unsigned int compacted_4b_initial, compacted_2b;
 	unsigned int amortizedshift;
 	erofs_off_t pos;
@@ -290,10 +290,10 @@ static int compacted_load_cluster_from_disk(struct z_erofs_maprecorder *m,
 	amortizedshift = 2;
 out:
 	pos += lcn * (1 << amortizedshift);
-	err = z_erofs_reload_indexes(m, erofs_blknr(pos));
+	err = z_erofs_reload_indexes(m, erofs_blknr(inode->i_sb, pos));
 	if (err)
 		return err;
-	return unpack_compacted_index(m, amortizedshift, erofs_blkoff(pos));
+	return unpack_compacted_index(m, amortizedshift, erofs_blkoff(inode->i_sb, pos));
 }
 
 static int z_erofs_load_cluster_from_disk(struct z_erofs_maprecorder *m,
@@ -435,7 +435,7 @@ int z_erofs_map_blocks_iter(struct inode *inode,
 
 	map->m_llen = end - map->m_la;
 	map->m_plen = 1 << lclusterbits;
-	map->m_pa = blknr_to_addr(m.pblk);
+	map->m_pa = erofs_pos(inode->i_sb, m.pblk);
 	map->m_flags |= EROFS_MAP_MAPPED;
 
 unmap_out:

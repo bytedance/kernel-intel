@@ -1202,11 +1202,11 @@ static void z_erofs_submit_queue(struct super_block *sb,
 
 		/* no device id here, thus it will always succeed */
 		mdev = (struct erofs_map_dev) {
-			.m_pa = blknr_to_addr(pcl->obj.index),
+			.m_pa = erofs_pos(sb, pcl->obj.index),
 		};
 		(void)erofs_map_dev(sb, &mdev);
 
-		cur = erofs_blknr(mdev.m_pa);
+		cur = erofs_blknr(sb, mdev.m_pa);
 		end = cur + BIT(pcl->clusterbits);
 
 		/* close the main owned chain at first */
@@ -1237,7 +1237,7 @@ submit_bio_retry:
 				bio_set_dev(bio, mdev.m_bdev);
 				last_bdev = mdev.m_bdev;
 				bio->bi_iter.bi_sector = (sector_t)cur <<
-					LOG_SECTORS_PER_BLOCK;
+					(sb->s_blocksize_bits - 9);
 				bio->bi_private = bi_private;
 				bio->bi_opf = REQ_OP_READ;
 				++nr_bios;
