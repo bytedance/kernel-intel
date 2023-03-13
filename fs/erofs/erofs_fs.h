@@ -40,7 +40,7 @@ struct erofs_super_block {
 	__le32 magic;           /* file system magic number */
 	__le32 checksum;        /* crc32c(super_block) */
 	__le32 feature_compat;
-	__u8 blkszbits;         /* support block_size == PAGE_SIZE only */
+	__u8 blkszbits;         /* filesystem block size in bit shift */
 	__u8 reserved;
 
 	__le16 root_nid;	/* nid of root directory */
@@ -57,7 +57,8 @@ struct erofs_super_block {
 	__le16 reserved2;
 	__le16 extra_devices;	/* # of devices besides the primary device */
 	__le16 devt_slotoff;	/* startoff = devt_slotoff * devt_slotsize */
-	__u8 reserved3[38];
+	__u8 dirblkbits;	/* directory block size in bit shift */
+	__u8 reserved3[37];
 };
 
 /*

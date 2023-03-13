@@ -324,8 +324,6 @@ static int erofs_fscache_readpage(struct file *file, struct page *page)
 	loff_t pstart;
 	int ret;
 
-	DBG_BUGON(page_size(page) != EROFS_BLKSIZ);
-
 	pos = page_offset(page);
 	map.m_la = pos;
 
