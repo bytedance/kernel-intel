@@ -2458,7 +2458,7 @@ void blk_tg_limit_wait(struct request_queue *q, struct throtl_grp *tg,
 		DEFINE_WAIT(wait);
 
 		prepare_to_wait(&tg->wq[index], &wait,
-				TASK_UNINTERRUPTIBLE);
+				TASK_KILLABLE);
 		spin_unlock_irq(&q->queue_lock);
 		rcu_read_unlock();
 		schedule();
