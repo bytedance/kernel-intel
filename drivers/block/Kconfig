@@ -485,4 +485,13 @@ config BLK_DEV_RSXX
 	  To compile this driver as a module, choose M here: the
 	  module will be called rsxx.
 
+config BLK_DEV_UBLK
+       tristate "Userspace block driver (Experimental)"
+       select IO_URING
+       help
+         io_uring based userspace block driver. Together with ublk server, ublk
+         has been working well, but interface with userspace or command data
+         definition isn't finalized yet, and might change according to future
+         requirement, so mark is as experimental now.
+
 endif # BLK_DEV
