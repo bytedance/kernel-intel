@@ -1026,7 +1026,7 @@ static void io_file_put_work(struct work_struct *work);
 
 static ssize_t io_import_iovec(int rw, struct io_kiocb *req,
 			       struct iovec **iovec, struct iov_iter *iter,
-			       bool needs_lock);
+			       unsigned int issue_flags);
 static int io_setup_async_rw(struct io_kiocb *req, const struct iovec *iovec,
 			     const struct iovec *fast_iov,
 			     struct iov_iter *iter, bool force);
@@ -2720,7 +2720,7 @@ static bool io_resubmit_prep(struct io_kiocb *req, int error)
 	}
 
 	if (!req->async_data) {
-		ret = io_import_iovec(rw, req, &iovec, &iter, false);
+		ret = io_import_iovec(rw, req, &iovec, &iter, IO_URING_F_NONBLOCK);
 		if (ret < 0)
 			goto end_req;
 		ret = io_setup_async_rw(req, iovec, inline_vecs, &iter, false);
@@ -3116,9 +3116,10 @@ static void io_ring_submit_lock(struct io_ring_ctx *ctx, bool needs_lock)
 
 static struct io_buffer *io_buffer_select(struct io_kiocb *req, size_t *len,
 					  int bgid, struct io_buffer *kbuf,
-					  bool needs_lock)
+					  unsigned int issue_flags)
 {
 	struct io_buffer *head;
+	bool needs_lock = !(issue_flags & IO_URING_F_NONBLOCK);
 
 	if (req->flags & REQ_F_BUFFER_SELECTED)
 		return kbuf;
@@ -3149,14 +3150,14 @@ static struct io_buffer *io_buffer_select(struct io_kiocb *req, size_t *len,
 }
 
 static void __user *io_rw_buffer_select(struct io_kiocb *req, size_t *len,
-					bool needs_lock)
+					unsigned int issue_flags)
 {
 	struct io_buffer *kbuf;
 	u16 bgid;
 
 	kbuf = (struct io_buffer *) (unsigned long) req->rw.addr;
 	bgid = req->buf_index;
-	kbuf = io_buffer_select(req, len, bgid, kbuf, needs_lock);
+	kbuf = io_buffer_select(req, len, bgid, kbuf, issue_flags);
 	if (IS_ERR(kbuf))
 		return kbuf;
 	req->rw.addr = (u64) (unsigned long) kbuf;
@@ -3166,7 +3167,7 @@ static void __user *io_rw_buffer_select(struct io_kiocb *req, size_t *len,
 
 #ifdef CONFIG_COMPAT
 static ssize_t io_compat_import(struct io_kiocb *req, struct iovec *iov,
-				bool needs_lock)
+				unsigned int issue_flags)
 {
 	struct compat_iovec __user *uiov;
 	compat_ssize_t clen;
@@ -3182,7 +3183,7 @@ static ssize_t io_compat_import(struct io_kiocb *req, struct iovec *iov,
 		return -EINVAL;
 
 	len = clen;
-	buf = io_rw_buffer_select(req, &len, needs_lock);
+	buf = io_rw_buffer_select(req, &len, issue_flags);
 	if (IS_ERR(buf))
 		return PTR_ERR(buf);
 	iov[0].iov_base = buf;
@@ -3192,7 +3193,7 @@ static ssize_t io_compat_import(struct io_kiocb *req, struct iovec *iov,
 #endif
 
 static ssize_t __io_iov_buffer_select(struct io_kiocb *req, struct iovec *iov,
-				      bool needs_lock)
+				      unsigned int issue_flags)
 {
 	struct iovec __user *uiov = u64_to_user_ptr(req->rw.addr);
 	void __user *buf;
@@ -3204,7 +3205,7 @@ static ssize_t __io_iov_buffer_select(struct io_kiocb *req, struct iovec *iov,
 	len = iov[0].iov_len;
 	if (len < 0)
 		return -EINVAL;
-	buf = io_rw_buffer_select(req, &len, needs_lock);
+	buf = io_rw_buffer_select(req, &len, issue_flags);
 	if (IS_ERR(buf))
 		return PTR_ERR(buf);
 	iov[0].iov_base = buf;
@@ -3213,7 +3214,7 @@ static ssize_t __io_iov_buffer_select(struct io_kiocb *req, struct iovec *iov,
 }
 
 static ssize_t io_iov_buffer_select(struct io_kiocb *req, struct iovec *iov,
-				    bool needs_lock)
+				    unsigned int issue_flags)
 {
 	if (req->flags & REQ_F_BUFFER_SELECTED) {
 		struct io_buffer *kbuf;
@@ -3228,15 +3229,15 @@ static ssize_t io_iov_buffer_select(struct io_kiocb *req, struct iovec *iov,
 
 #ifdef CONFIG_COMPAT
 	if (req->ctx->compat)
-		return io_compat_import(req, iov, needs_lock);
+		return io_compat_import(req, iov, issue_flags);
 #endif
 
-	return __io_iov_buffer_select(req, iov, needs_lock);
+	return __io_iov_buffer_select(req, iov, issue_flags);
 }
 
 static ssize_t io_import_iovec(int rw, struct io_kiocb *req,
 				 struct iovec **iovec, struct iov_iter *iter,
-				 bool needs_lock)
+				 unsigned int issue_flags)
 {
 	void __user *buf = u64_to_user_ptr(req->rw.addr);
 	size_t sqe_len = req->rw.len;
@@ -3255,7 +3256,7 @@ static ssize_t io_import_iovec(int rw, struct io_kiocb *req,
 
 	if (opcode == IORING_OP_READ || opcode == IORING_OP_WRITE) {
 		if (req->flags & REQ_F_BUFFER_SELECT) {
-			buf = io_rw_buffer_select(req, &sqe_len, needs_lock);
+			buf = io_rw_buffer_select(req, &sqe_len, issue_flags);
 			if (IS_ERR(buf))
 				return PTR_ERR(buf);
 			req->rw.len = sqe_len;
@@ -3267,7 +3268,7 @@ static ssize_t io_import_iovec(int rw, struct io_kiocb *req,
 	}
 
 	if (req->flags & REQ_F_BUFFER_SELECT) {
-		ret = io_iov_buffer_select(req, *iovec, needs_lock);
+		ret = io_iov_buffer_select(req, *iovec, issue_flags);
 		if (!ret) {
 			ret = (*iovec)->iov_len;
 			iov_iter_init(iter, rw, *iovec, 1, ret);
@@ -3413,7 +3414,7 @@ static inline int io_rw_prep_async(struct io_kiocb *req, int rw)
 	struct iovec *iov = iorw->fast_iov;
 	ssize_t ret;
 
-	ret = io_import_iovec(rw, req, &iov, &iorw->iter, false);
+	ret = io_import_iovec(rw, req, &iov, &iorw->iter, IO_URING_F_NONBLOCK);
 	if (unlikely(ret < 0))
 		return ret;
 
@@ -4864,12 +4865,12 @@ static int io_recvmsg_copy_hdr(struct io_kiocb *req,
 }
 
 static struct io_buffer *io_recv_buffer_select(struct io_kiocb *req,
-					       bool needs_lock)
+					       unsigned int issue_flags)
 {
 	struct io_sr_msg *sr = &req->sr_msg;
 	struct io_buffer *kbuf;
 
-	kbuf = io_buffer_select(req, &sr->len, sr->bgid, sr->kbuf, needs_lock);
+	kbuf = io_buffer_select(req, &sr->len, sr->bgid, sr->kbuf, issue_flags);
 	if (IS_ERR(kbuf))
 		return kbuf;
 
@@ -4939,7 +4940,8 @@ static int io_recvmsg(struct io_kiocb *req, bool force_nonblock,
 	}
 
 	if (req->flags & REQ_F_BUFFER_SELECT) {
-		kbuf = io_recv_buffer_select(req, !force_nonblock);
+		kbuf = io_recv_buffer_select(req,
+				force_nonblock ? IO_URING_F_NONBLOCK : 0);
 		if (IS_ERR(kbuf))
 			return PTR_ERR(kbuf);
 		kmsg->fast_iov[0].iov_base = u64_to_user_ptr(kbuf->addr);
@@ -4988,7 +4990,8 @@ static int io_recv(struct io_kiocb *req, bool force_nonblock,
 		return -ENOTSOCK;
 
 	if (req->flags & REQ_F_BUFFER_SELECT) {
-		kbuf = io_recv_buffer_select(req, !force_nonblock);
+		kbuf = io_recv_buffer_select(req,
+			force_nonblock ? IO_URING_F_NONBLOCK : 0);
 		if (IS_ERR(kbuf))
 			return PTR_ERR(kbuf);
 		buf = u64_to_user_ptr(kbuf->addr);
