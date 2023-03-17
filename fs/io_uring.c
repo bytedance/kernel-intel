@@ -705,6 +705,7 @@ struct io_kiocb {
 		struct io_unlink	unlink;
 		/* use only after cleaning per-op data, see io_clean_op() */
 		struct io_completion	compl;
+		struct io_uring_cmd	uring_cmd;
 	};
 
 	/* opcode allocated if it needs to store data for async defer */
@@ -775,6 +776,14 @@ struct io_submit_state {
 	unsigned int		file_refs;
 	unsigned int		ios_left;
 };
+
+/*
+ * The URING_CMD payload starts at 'cmd' in the first sqe, and continues into
+ * the following sqe if SQE128 is used.
+ */
+#define uring_cmd_pdu_size(is_sqe128)				\
+	((1 + !!(is_sqe128)) * sizeof(struct io_uring_sqe) -	\
+		offsetof(struct io_uring_sqe, cmd))
 
 struct io_op_def {
 	/* needs req->file assigned */
@@ -991,6 +1000,12 @@ static const struct io_op_def io_op_defs[] = {
 	[IORING_OP_UNLINKAT] = {
 		.work_flags		= IO_WQ_WORK_MM | IO_WQ_WORK_FILES |
 						IO_WQ_WORK_FS | IO_WQ_WORK_BLKCG,
+	},
+	[IORING_OP_URING_CMD] = {
+		.needs_file		= 1,
+		.needs_async_data	= 1,
+		.async_size		= uring_cmd_pdu_size(1),
+		.work_flags		= IO_WQ_WORK_MM,
 	},
 };
 
@@ -3995,6 +4010,93 @@ static int io_splice(struct io_kiocb *req, bool force_nonblock)
 	return 0;
 }
 
+static void io_uring_cmd_work(struct callback_head *cb)
+{
+	struct io_kiocb *req = container_of(cb, struct io_kiocb, task_work);
+	req->uring_cmd.task_work_cb(&req->uring_cmd);
+}
+
+void io_uring_cmd_complete_in_task(struct io_uring_cmd *ioucmd,
+			void (*task_work_cb)(struct io_uring_cmd *))
+{
+	int ret;
+	struct io_kiocb *req = container_of(ioucmd, struct io_kiocb, uring_cmd);
+
+	req->uring_cmd.task_work_cb = task_work_cb;
+	req->task_work.func = io_uring_cmd_work;
+	ret = io_req_task_work_add(req);
+	if (unlikely(ret))
+		io_req_task_work_add_fallback(req, io_uring_cmd_work);
+}
+EXPORT_SYMBOL_GPL(io_uring_cmd_complete_in_task);
+
+/*
+ * Called by consumers of io_uring_cmd, if they originally returned
+ * -EIOCBQUEUED upon receiving the command.
+ */
+void io_uring_cmd_done(struct io_uring_cmd *ioucmd, ssize_t ret, ssize_t res2)
+{
+	struct io_kiocb *req = container_of(ioucmd, struct io_kiocb, uring_cmd);
+
+	if (ret < 0)
+		req_set_fail_links(req);
+	io_req_complete(req, ret);
+}
+EXPORT_SYMBOL_GPL(io_uring_cmd_done);
+
+static int io_uring_cmd_prep_async(struct io_kiocb *req)
+{
+	size_t cmd_size;
+
+	cmd_size = uring_cmd_pdu_size(req->ctx->flags & IORING_SETUP_SQE128);
+
+	memcpy(req->async_data, req->uring_cmd.cmd, cmd_size);
+	return 0;
+}
+
+static int io_uring_cmd_prep(struct io_kiocb *req,
+			     const struct io_uring_sqe *sqe)
+{
+	struct io_uring_cmd *ioucmd = &req->uring_cmd;
+
+	if (sqe->rw_flags)
+		return -EINVAL;
+	ioucmd->cmd = sqe->cmd;
+	ioucmd->cmd_op = READ_ONCE(sqe->cmd_op);
+	return 0;
+}
+
+static int io_uring_cmd(struct io_kiocb *req, unsigned int issue_flags)
+{
+	struct io_uring_cmd *ioucmd = &req->uring_cmd;
+	struct io_ring_ctx *ctx = req->ctx;
+	struct file *file = req->file;
+	int ret;
+
+	if (!req->file->f_op->uring_cmd)
+		return -EOPNOTSUPP;
+
+	if (ctx->flags & IORING_SETUP_SQE128)
+		issue_flags |= IO_URING_F_SQE128;
+
+	if (req->async_data)
+		ioucmd->cmd = req->async_data;
+
+	ret = file->f_op->uring_cmd(ioucmd, issue_flags);
+	if (ret == -EAGAIN) {
+		if (!req->async_data) {
+			if (io_alloc_async_data(req))
+				return -ENOMEM;
+			io_uring_cmd_prep_async(req);
+		}
+		return -EAGAIN;
+	}
+
+	if (ret != -EIOCBQUEUED)
+		io_uring_cmd_done(ioucmd, ret, 0);
+	return 0;
+}
+
 /*
  * IORING_OP_NOP just posts a completion event, nothing else.
  */
@@ -6160,6 +6262,8 @@ static int io_req_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 		return io_renameat_prep(req, sqe);
 	case IORING_OP_UNLINKAT:
 		return io_unlinkat_prep(req, sqe);
+	case IORING_OP_URING_CMD:
+		return io_uring_cmd_prep(req, sqe);
 	}
 
 	printk_once(KERN_WARNING "io_uring: unhandled opcode %d\n",
@@ -6417,6 +6521,9 @@ static int io_issue_sqe(struct io_kiocb *req, bool force_nonblock,
 		break;
 	case IORING_OP_UNLINKAT:
 		ret = io_unlinkat(req, force_nonblock);
+		break;
+	case IORING_OP_URING_CMD:
+		ret = io_uring_cmd(req, force_nonblock ? IO_URING_F_NONBLOCK : 0);
 		break;
 	default:
 		ret = -EINVAL;
