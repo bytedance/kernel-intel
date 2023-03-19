@@ -6841,8 +6841,12 @@ static const struct io_uring_sqe *io_get_sqe(struct io_ring_ctx *ctx)
 	 *    though the application is the one updating it.
 	 */
 	head = READ_ONCE(sq_array[ctx->cached_sq_head & ctx->sq_mask]);
-	if (likely(head < ctx->sq_entries))
+	if (likely(head < ctx->sq_entries)) {
+		/* double index for 128-byte SQEs, twice as long */
+		if (ctx->flags & IORING_SETUP_SQE128)
+			head <<= 1;
 		return &ctx->sq_sqes[head];
+	}
 
 	/* drop invalid entries */
 	ctx->cached_sq_dropped++;
@@ -8420,14 +8424,19 @@ static unsigned long rings_size(unsigned sq_entries, unsigned cq_entries,
 	return off;
 }
 
-static unsigned long ring_pages(unsigned sq_entries, unsigned cq_entries)
+static unsigned long ring_pages(unsigned sq_entries, unsigned cq_entries,
+				unsigned int flags)
 {
 	size_t pages;
 
 	pages = (size_t)1 << get_order(
 		rings_size(sq_entries, cq_entries, NULL));
-	pages += (size_t)1 << get_order(
-		array_size(sizeof(struct io_uring_sqe), sq_entries));
+	if (flags & IORING_SETUP_SQE128)
+		pages += (size_t)1 << get_order(
+			array_size(2 * sizeof(struct io_uring_sqe), sq_entries));
+	else
+		pages += (size_t)1 << get_order(
+			array_size(sizeof(struct io_uring_sqe), sq_entries));
 
 	return pages;
 }
@@ -8905,7 +8914,8 @@ static void io_ring_ctx_wait_and_kill(struct io_ring_ctx *ctx)
 	 * is closed but resources aren't reaped yet. This can cause
 	 * spurious failure in setting up a new ring.
 	 */
-	io_unaccount_mem(ctx, ring_pages(ctx->sq_entries, ctx->cq_entries),
+	io_unaccount_mem(ctx, ring_pages(ctx->sq_entries, ctx->cq_entries,
+					 ctx->flags),
 			 ACCT_LOCKED);
 
 	INIT_WORK(&ctx->exit_work, io_ring_exit_work);
@@ -9649,7 +9659,10 @@ static int io_allocate_scq_urings(struct io_ring_ctx *ctx,
 	ctx->sq_mask = rings->sq_ring_mask;
 	ctx->cq_mask = rings->cq_ring_mask;
 
-	size = array_size(sizeof(struct io_uring_sqe), p->sq_entries);
+	if (p->flags & IORING_SETUP_SQE128)
+		size = array_size(2 * sizeof(struct io_uring_sqe), p->sq_entries);
+	else
+		size = array_size(sizeof(struct io_uring_sqe), p->sq_entries);
 	if (size == SIZE_MAX) {
 		io_mem_free(ctx->rings);
 		ctx->rings = NULL;
@@ -9764,8 +9777,9 @@ static int io_uring_create(unsigned entries, struct io_uring_params *p,
 	limit_mem = !capable(CAP_IPC_LOCK);
 
 	if (limit_mem) {
-		ret = __io_account_mem(user,
-				ring_pages(p->sq_entries, p->cq_entries));
+		ret = __io_account_mem(user, ring_pages(p->sq_entries,
+							p->cq_entries,
+							p->flags));
 		if (ret) {
 			free_uid(user);
 			return ret;
@@ -9776,7 +9790,8 @@ static int io_uring_create(unsigned entries, struct io_uring_params *p,
 	if (!ctx) {
 		if (limit_mem)
 			__io_unaccount_mem(user, ring_pages(p->sq_entries,
-								p->cq_entries));
+							    p->cq_entries,
+							    p->flags));
 		free_uid(user);
 		return -ENOMEM;
 	}
@@ -9823,7 +9838,7 @@ static int io_uring_create(unsigned entries, struct io_uring_params *p,
 	 * do this before hitting the general error path, as ring freeing
 	 * will un-account as well.
 	 */
-	io_account_mem(ctx, ring_pages(p->sq_entries, p->cq_entries),
+	io_account_mem(ctx, ring_pages(p->sq_entries, p->cq_entries, p->flags),
 		       ACCT_LOCKED);
 	ctx->limit_mem = limit_mem;
 
@@ -9913,7 +9928,7 @@ static long io_uring_setup(u32 entries, struct io_uring_params __user *params)
 	if (p.flags & ~(IORING_SETUP_IOPOLL | IORING_SETUP_SQPOLL |
 			IORING_SETUP_SQ_AFF | IORING_SETUP_CQSIZE |
 			IORING_SETUP_CLAMP | IORING_SETUP_ATTACH_WQ |
-			IORING_SETUP_R_DISABLED))
+			IORING_SETUP_R_DISABLED | IORING_SETUP_SQE128))
 		return -EINVAL;
 
 	return  io_uring_create(entries, &p, params);
