@@ -208,6 +208,8 @@ struct gendisk {
 	void *private_data;
 
 	int flags;
+	unsigned long state;
+#define GD_ADDED		4
 	struct rw_semaphore lookup_sem;
 	struct kobject *slave_dir;
 

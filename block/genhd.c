@@ -753,6 +753,7 @@ static void __device_add_disk(struct device *parent, struct gendisk *disk,
 
 	disk_add_events(disk);
 	blk_integrity_add(disk);
+	set_bit(GD_ADDED, &disk->state);
 }
 
 void device_add_disk(struct device *parent, struct gendisk *disk,
@@ -1350,6 +1351,8 @@ static void disk_release(struct device *dev)
 	hd_free_part(&disk->part0);
 	if (disk->queue)
 		blk_put_queue(disk->queue);
+	if (test_bit(GD_ADDED, &disk->state) && disk->fops->free_disk)
+		disk->fops->free_disk(disk);
 	kfree(disk);
 }
 struct class block_class = {
