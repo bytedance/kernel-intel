@@ -50,7 +50,9 @@
 #define UBLK_MINORS		(1U << MINORBITS)
 
 /* All UBLK_F_* have to be included into UBLK_F_ALL */
-#define UBLK_F_ALL (UBLK_F_SUPPORT_ZERO_COPY | UBLK_F_URING_CMD_COMP_IN_TASK)
+#define UBLK_F_ALL (UBLK_F_SUPPORT_ZERO_COPY \
+		| UBLK_F_URING_CMD_COMP_IN_TASK \
+		| UBLK_F_NEED_GET_DATA)
 
 struct ublk_rq_data {
 	struct callback_head work;
@@ -91,6 +93,15 @@ struct ublk_uring_cmd_pdu {
  * associated with this io command will be failed immediately
  */
 #define UBLK_IO_FLAG_ABORTED 0x04
+
+/*
+ * UBLK_IO_FLAG_NEED_GET_DATA is set because IO command requires
+ * get data buffer address from ublksrv.
+ *
+ * Then, bio data could be copied into this data buffer for a WRITE request
+ * after the IO command is issued again and UBLK_IO_FLAG_NEED_GET_DATA is unset.
+ */
+#define UBLK_IO_FLAG_NEED_GET_DATA 0x08
 
 struct ublk_io {
 	/* userspace buffer address from io cmd */
@@ -264,6 +275,11 @@ static int ublk_apply_params(struct ublk_device *ub)
 		ublk_dev_param_discard_apply(ub);
 
 	return 0;
+}
+
+static inline bool ublk_need_get_data(const struct ublk_queue *ubq)
+{
+	return ubq->flags & UBLK_F_NEED_GET_DATA;
 }
 
 static struct ublk_device *ublk_get_device(struct ublk_device *ub)
@@ -607,6 +623,21 @@ static void __ublk_fail_req(struct ublk_io *io, struct request *req)
 	}
 }
 
+static void ubq_complete_io_cmd(struct ublk_io *io, int res)
+{
+	/* mark this cmd owned by ublksrv */
+	io->flags |= UBLK_IO_FLAG_OWNED_BY_SRV;
+
+	/*
+	 * clear ACTIVE since we are done with this sqe/cmd slot
+	 * We can only accept io cmd in case of being not active.
+	 */
+	io->flags &= ~UBLK_IO_FLAG_ACTIVE;
+
+	/* tell ublksrv one io request is coming */
+	io_uring_cmd_done(io->cmd, res, 0);
+}
+
 #define UBLK_REQUEUE_DELAY_MS	3
 
 static inline void __ublk_rq_task_work(struct request *req)
@@ -627,6 +658,30 @@ static inline void __ublk_rq_task_work(struct request *req)
 		blk_mq_end_request(req, BLK_STS_IOERR);
 		mod_delayed_work(system_wq, &ub->monitor_work, 0);
 		return;
+	}
+
+	if (ublk_need_get_data(ubq) &&
+			(req_op(req) == REQ_OP_WRITE ||
+			req_op(req) == REQ_OP_FLUSH)) {
+		/*
+		 * We have not handled UBLK_IO_NEED_GET_DATA command yet,
+		 * so immepdately pass UBLK_IO_RES_NEED_GET_DATA to ublksrv
+		 * and notify it.
+		 */
+		if (!(io->flags & UBLK_IO_FLAG_NEED_GET_DATA)) {
+			io->flags |= UBLK_IO_FLAG_NEED_GET_DATA;
+			pr_devel("%s: need get data. op %d, qid %d tag %d io_flags %x\n",
+					__func__, io->cmd->cmd_op, ubq->q_id,
+					req->tag, io->flags);
+			ubq_complete_io_cmd(io, UBLK_IO_RES_NEED_GET_DATA);
+			return;
+		}
+		/*
+		 * We have handled UBLK_IO_NEED_GET_DATA command,
+		 * so clear UBLK_IO_FLAG_NEED_GET_DATA now and just
+		 * do the copy work.
+		 */
+		io->flags &= ~UBLK_IO_FLAG_NEED_GET_DATA;
 	}
 
 	mapped_bytes = ublk_map_io(ubq, req, io);
@@ -651,17 +706,7 @@ static inline void __ublk_rq_task_work(struct request *req)
 			mapped_bytes >> 9;
 	}
 
-	/* mark this cmd owned by ublksrv */
-	io->flags |= UBLK_IO_FLAG_OWNED_BY_SRV;
-
-	/*
-	 * clear ACTIVE since we are done with this sqe/cmd slot
-	 * We can only accept io cmd in case of being not active.
-	 */
-	io->flags &= ~UBLK_IO_FLAG_ACTIVE;
-
-	/* tell ublksrv one io request is coming */
-	io_uring_cmd_done(io->cmd, UBLK_IO_RES_OK, 0);
+	ubq_complete_io_cmd(io, UBLK_IO_RES_OK);
 }
 
 static void ublk_rq_task_work_cb(struct io_uring_cmd *cmd)
@@ -951,6 +996,16 @@ static void ublk_mark_io_ready(struct ublk_device *ub, struct ublk_queue *ubq)
 	mutex_unlock(&ub->mutex);
 }
 
+static void ublk_handle_need_get_data(struct ublk_device *ub, int q_id,
+		int tag, struct io_uring_cmd *cmd)
+{
+	struct request *req = blk_mq_tag_to_rq(ub->tag_set.tags[q_id], tag);
+	struct ublk_uring_cmd_pdu *pdu = ublk_get_uring_cmd_pdu(cmd);
+
+	pdu->req = req;
+	io_uring_cmd_complete_in_task(cmd, ublk_rq_task_work_cb);
+}
+
 static int ublk_ch_uring_cmd(struct io_uring_cmd *cmd, unsigned int issue_flags)
 {
 	struct ublksrv_io_cmd *ub_cmd = (struct ublksrv_io_cmd *)cmd->cmd;
@@ -989,6 +1044,14 @@ static int ublk_ch_uring_cmd(struct io_uring_cmd *cmd, unsigned int issue_flags)
 		goto out;
 	}
 
+	/*
+	 * ensure that the user issues UBLK_IO_NEED_GET_DATA
+	 * iff the driver have set the UBLK_IO_FLAG_NEED_GET_DATA.
+	 */
+	if ((!!(io->flags & UBLK_IO_FLAG_NEED_GET_DATA))
+			^ (cmd_op == UBLK_IO_NEED_GET_DATA))
+		goto out;
+
 	switch (cmd_op) {
 	case UBLK_IO_FETCH_REQ:
 		/* UBLK_IO_FETCH_REQ is only allowed before queue is setup */
@@ -1021,6 +1084,14 @@ static int ublk_ch_uring_cmd(struct io_uring_cmd *cmd, unsigned int issue_flags)
 		io->flags |= UBLK_IO_FLAG_ACTIVE;
 		io->cmd = cmd;
 		ublk_commit_completion(ub, ub_cmd);
+		break;
+	case UBLK_IO_NEED_GET_DATA:
+		if (!(io->flags & UBLK_IO_FLAG_OWNED_BY_SRV))
+			goto out;
+		io->addr = ub_cmd->addr;
+		io->cmd = cmd;
+		io->flags |= UBLK_IO_FLAG_ACTIVE;
+		ublk_handle_need_get_data(ub, ub_cmd->q_id, ub_cmd->tag, cmd);
 		break;
 	default:
 		goto out;
