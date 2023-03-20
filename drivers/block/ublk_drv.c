@@ -1170,8 +1170,10 @@ static int ublk_add_dev(struct ublk_device *ub)
 		goto out_deinit_queues;
 
 	ub->ub_queue = blk_mq_init_queue(&ub->tag_set);
-	if (IS_ERR(ub->ub_queue))
+	if (IS_ERR(ub->ub_queue)) {
+		err = PTR_ERR(ub->ub_queue);
 		goto out_cleanup_tags;
+	}
 
 	disk = ub->ub_disk = alloc_disk_node(0, NUMA_NO_NODE);
 	if (!disk) {
