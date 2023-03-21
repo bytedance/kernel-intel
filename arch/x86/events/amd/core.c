@@ -837,6 +837,7 @@ static int amd_pmu_v2_handle_irq(struct pt_regs *regs)
 
 		/* Event overflow */
 		handled++;
+		status &= ~mask;
 		perf_sample_data_init(&data, 0, hwc->last_period);
 
 		if (!x86_perf_event_set_period(event))
@@ -844,8 +845,6 @@ static int amd_pmu_v2_handle_irq(struct pt_regs *regs)
 
 		if (perf_event_overflow(event, &data, regs))
 			x86_pmu_stop(event, 0);
-
-		status &= ~mask;
 	}
 
 	/*
