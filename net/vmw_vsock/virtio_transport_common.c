@@ -86,6 +86,11 @@ virtio_transport_alloc_skb(struct virtio_vsock_pkt_info *info,
 					 info->op,
 					 info->flags);
 
+	if (info->vsk && !skb_set_owner_sk_safe(skb, sk_vsock(info->vsk))) {
+		WARN_ONCE(1, "failed to allocate skb on vsock socket with sk_refcnt == 0\n");
+		goto out;
+	}
+
 	return skb;
 
 out:
@@ -1143,6 +1148,11 @@ void virtio_transport_recv_pkt(struct virtio_transport *t,
 			(void)virtio_transport_reset_no_sock(t, skb);
 			goto free_pkt;
 		}
+	}
+
+	if (!skb_set_owner_sk_safe(skb, sk)) {
+		WARN_ONCE(1, "receiving vsock socket has sk_refcnt == 0\n");
+		goto free_pkt;
 	}
 
 	vsk = vsock_sk(sk);
