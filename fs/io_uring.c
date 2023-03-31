@@ -4014,11 +4014,11 @@ static int io_splice(struct io_kiocb *req, bool force_nonblock)
 static void io_uring_cmd_work(struct callback_head *cb)
 {
 	struct io_kiocb *req = container_of(cb, struct io_kiocb, task_work);
-	req->uring_cmd.task_work_cb(&req->uring_cmd);
+	req->uring_cmd.task_work_cb(&req->uring_cmd, 0);
 }
 
 void io_uring_cmd_complete_in_task(struct io_uring_cmd *ioucmd,
-			void (*task_work_cb)(struct io_uring_cmd *))
+			void (*task_work_cb)(struct io_uring_cmd *, unsigned))
 {
 	int ret;
 	struct io_kiocb *req = container_of(ioucmd, struct io_kiocb, uring_cmd);
@@ -4035,13 +4035,21 @@ EXPORT_SYMBOL_GPL(io_uring_cmd_complete_in_task);
  * Called by consumers of io_uring_cmd, if they originally returned
  * -EIOCBQUEUED upon receiving the command.
  */
-void io_uring_cmd_done(struct io_uring_cmd *ioucmd, ssize_t ret, ssize_t res2)
+void io_uring_cmd_done(struct io_uring_cmd *ioucmd, ssize_t ret, ssize_t res2,
+		       unsigned issue_flags)
 {
 	struct io_kiocb *req = container_of(ioucmd, struct io_kiocb, uring_cmd);
+	bool needs_lock = issue_flags & IO_URING_F_UNLOCKED;
+
+	if (needs_lock)
+		mutex_lock(&req->ctx->uring_lock);
 
 	if (ret < 0)
 		req_set_fail_links(req);
 	io_req_complete(req, ret);
+
+	if (needs_lock)
+		mutex_unlock(&req->ctx->uring_lock);
 }
 EXPORT_SYMBOL_GPL(io_uring_cmd_done);
 
@@ -4098,7 +4106,7 @@ static int io_uring_cmd(struct io_kiocb *req, unsigned int issue_flags)
 	}
 
 	if (ret != -EIOCBQUEUED)
-		io_uring_cmd_done(ioucmd, ret, 0);
+		io_uring_cmd_done(ioucmd, ret, 0, 0);
 	return 0;
 }
 
