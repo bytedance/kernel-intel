@@ -1454,6 +1454,9 @@
  *     code execution in kernel space should be permitted.
  *
  *     @what: kernel feature being accessed
+ *
+ * @uring_cmd:
+ *     Check whether the file_operations uring_cmd is allowed to run.
  */
 union security_list_options {
 	int (*binder_set_context_mgr)(const struct cred *mgr);
@@ -1818,6 +1821,9 @@ union security_list_options {
 	void (*bpf_prog_free_security)(struct bpf_prog_aux *aux);
 #endif /* CONFIG_BPF_SYSCALL */
 	int (*locked_down)(enum lockdown_reason what);
+#ifdef CONFIG_IO_URING
+	int (*uring_cmd)(struct io_uring_cmd *ioucmd);
+#endif
 };
 
 struct security_hook_heads {
@@ -2060,6 +2066,9 @@ struct security_hook_heads {
 	struct hlist_head bpf_prog_free_security;
 #endif /* CONFIG_BPF_SYSCALL */
 	struct hlist_head locked_down;
+#ifdef CONFIG_IO_URING
+	struct hlist_head uring_cmd;
+#endif
 } __randomize_layout;
 
 /*
