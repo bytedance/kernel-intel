@@ -1984,7 +1984,7 @@ void *mlx5_vdpa_add_dev(struct mlx5_core_dev *mdev)
 	if (!(MLX5_CAP_DEV_VDPA_EMULATION(mdev, virtio_queue_type) &
 	    MLX5_VIRTIO_EMULATION_CAP_VIRTIO_QUEUE_TYPE_SPLIT)) {
 		dev_warn(mdev->device, "missing support for split virtqueues\n");
-		return -EOPNOTSUPP;
+		return ERR_PTR(-EOPNOTSUPP);
 	}
 
 	/* we save one virtqueue for control virtqueue should we require it */
