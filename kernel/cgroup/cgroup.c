@@ -31,6 +31,7 @@
 #include "cgroup-internal.h"
 
 #include <linux/cred.h>
+#include <linux/cpu.h>
 #include <linux/errno.h>
 #include <linux/init_task.h>
 #include <linux/kernel.h>
