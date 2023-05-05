@@ -27,6 +27,7 @@ int blk_should_fake_timeout(struct request_queue *q)
 
 	return should_fail(&fail_io_timeout, 1);
 }
+EXPORT_SYMBOL_GPL(blk_should_fake_timeout);
 
 static int __init fail_io_timeout_debugfs(void)
 {
