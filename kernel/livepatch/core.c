@@ -777,6 +777,7 @@ static int klp_init_object_loaded(struct klp_patch *patch,
 	if (klp_is_module(obj)) {
 
 		mutex_lock(&text_mutex);
+		module_disable_ro(patch->mod);
 
 		/*
 		 * Only write module-specific relocations here
@@ -786,6 +787,7 @@ static int klp_init_object_loaded(struct klp_patch *patch,
 		 */
 		ret = klp_apply_object_relocs(patch, obj);
 
+		module_enable_ro(patch->mod, true);
 		mutex_unlock(&text_mutex);
 
 		if (ret)
