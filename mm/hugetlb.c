@@ -3511,11 +3511,11 @@ static int hugetlb_background_clr_cpumask_handler(struct ctl_table *table,
 
 	cpumask_copy(tmpmask, &hugetlb_background_clr_cpumask);
 
-	spin_lock(&hugetlb_lock);
 	err = proc_do_large_bitmap(table, write, buffer, lenp, ppos);
 	if (!err && write) {
 		int cpu;
 
+		spin_lock(&hugetlb_lock);
 		cpumask_and(&hugetlb_background_clr_cpumask,
 			    &hugetlb_background_clr_cpumask,
 			    cpu_possible_mask);
@@ -3523,9 +3523,9 @@ static int hugetlb_background_clr_cpumask_handler(struct ctl_table *table,
 		cpumask_xor(tmpmask, tmpmask, &hugetlb_background_clr_cpumask);
 		for_each_cpu(cpu, tmpmask)
 			cancel_delayed_work(&per_cpu(hugetlb_clean_work, cpu));
+		spin_unlock(&hugetlb_lock);
 	}
 
-	spin_unlock(&hugetlb_lock);
 	free_cpumask_var(tmpmask);
 
 	return err;
