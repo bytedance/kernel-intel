@@ -157,7 +157,6 @@ alternative_else_nop_endif
 #endif
 	bfi	x2, x1, #48, #16		// set the ASID
 	msr	ttbr1_el1, x2			// in TTBR1 (since TCR.A1 is set)
-	isb
 	msr	ttbr0_el1, x3			// now update TTBR0
 	isb
 	b	post_ttbr_update_workaround	// Back to C code...

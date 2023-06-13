@@ -38,18 +38,23 @@ static inline void contextidr_thread_switch(struct task_struct *next)
 /*
  * Set TTBR0 to reserved_pg_dir. No translations will be possible via TTBR0.
  */
-static inline void cpu_set_reserved_ttbr0(void)
+static inline void cpu_set_reserved_ttbr0_nosync(void)
 {
 	unsigned long ttbr = phys_to_ttbr(__pa_symbol(reserved_pg_dir));
 
 	write_sysreg(ttbr, ttbr0_el1);
+}
+
+static inline void cpu_set_reserved_ttbr0(void)
+{
+	cpu_set_reserved_ttbr0_nosync();
 	isb();
 }
 
 static inline void cpu_switch_mm(pgd_t *pgd, struct mm_struct *mm)
 {
 	BUG_ON(pgd == swapper_pg_dir);
-	cpu_set_reserved_ttbr0();
+	cpu_set_reserved_ttbr0_nosync();
 	cpu_do_switch_mm(virt_to_phys(pgd),mm);
 }
 
