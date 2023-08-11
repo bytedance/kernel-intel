@@ -1981,9 +1981,10 @@ static int ipvs_proc_est_cpumask_get(struct ctl_table *table, void *buffer,
 }
 
 static int ipvs_proc_est_cpulist(struct ctl_table *table, int write,
-				 void *buffer, size_t *lenp, loff_t *ppos)
+				 void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	int ret;
+	void *kbuf;
 
 	/* Ignore both read and write(append) if *ppos not 0 */
 	if (*ppos || !*lenp) {
@@ -1991,19 +1992,29 @@ static int ipvs_proc_est_cpulist(struct ctl_table *table, int write,
 		return 0;
 	}
 	if (write) {
-		/* proc_sys_call_handler() appends terminator */
-		ret = ipvs_proc_est_cpumask_set(table, buffer);
+		kbuf = memdup_user_nul(buffer, *lenp);
+		if (IS_ERR(kbuf))
+			return PTR_ERR(kbuf);
+		ret = ipvs_proc_est_cpumask_set(table, kbuf);
 		if (ret >= 0)
 			*ppos += *lenp;
 	} else {
-		/* proc_sys_call_handler() allocates 1 byte for terminator */
-		ret = ipvs_proc_est_cpumask_get(table, buffer, *lenp + 1);
+		kbuf = kmalloc(*lenp + 1, GFP_KERNEL);
+		if (!kbuf)
+			return -ENOMEM;
+		ret = ipvs_proc_est_cpumask_get(table, kbuf, *lenp + 1);
 		if (ret >= 0) {
+			if (copy_to_user(buffer, kbuf, *lenp)) {
+				ret = -EFAULT;
+				goto out;
+			}
 			*lenp = ret;
 			*ppos += *lenp;
 			ret = 0;
 		}
 	}
+out:
+	kfree(kbuf);
 	return ret;
 }
 
