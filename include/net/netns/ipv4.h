@@ -169,6 +169,7 @@ struct netns_ipv4 {
 	int sysctl_tcp_rmem[3];
 	int sysctl_tcp_comp_sack_nr;
 	int sysctl_tcp_handshake_ts;
+	int sysctl_tcp_tw_timeout;
 	unsigned long sysctl_tcp_comp_sack_delay_ns;
 	struct inet_timewait_death_row tcp_death_row;
 	int sysctl_max_syn_backlog;
