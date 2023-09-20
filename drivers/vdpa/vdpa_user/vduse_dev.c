@@ -848,7 +848,7 @@ static void vduse_vdpa_set_config(struct vdpa_device *vdpa, unsigned int offset,
 	spin_lock(&dev->config_lock);
 	kfree(dev->config);
 	dev->config = NULL;
-	spin_lock(&dev->config_lock);
+	spin_unlock(&dev->config_lock);
 	vduse_dev_set_config(dev, offset, buf, len);
 }
 
