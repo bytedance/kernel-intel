@@ -128,7 +128,7 @@ static int show_stat(struct seq_file *p, void *v)
 	getboottime64(&boottime);
 
 	if (cgroup_override_proc()) {
-		tsk = cgroup_override_get_init_tsk();
+		tsk = cgroup_override_get_source_tsk();
 		cgroup_override_get_raw_cpuset(&msk);
 		iter = &msk;
 		override = true;

@@ -983,8 +983,9 @@ static inline void cgroup_bpf_put(struct cgroup *cgrp) {}
 
 #ifdef CONFIG_CGROUP_OVERRIDE_PROC
 extern int sysctl_cgroup_override_proc;
+extern int sysctl_cgroup_override_source;
 bool cgroup_override_proc(void);
-struct task_struct *cgroup_override_get_init_tsk(void);
+struct task_struct *cgroup_override_get_source_tsk(void);
 void cgroup_override_get_cpuset(struct cpumask *cpuset);
 void cgroup_override_get_raw_cpuset(struct cpumask *cpuset);
 struct mem_cgroup *cgroup_override_get_memcg(void);
@@ -994,7 +995,7 @@ static inline bool cgroup_override_proc(void)
 {
 	return false;
 }
-static inline struct task_struct *cgroup_override_get_init_tsk(void)
+static inline struct task_struct *cgroup_override_get_source_tsk(void)
 {
 	return NULL;
 }

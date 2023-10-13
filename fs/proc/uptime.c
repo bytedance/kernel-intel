@@ -23,7 +23,7 @@ static int uptime_proc_show(struct seq_file *m, void *v)
 	ktime_get_boottime_ts64(&uptime);
 
 	if (cgroup_override_proc()) {
-		tsk = cgroup_override_get_init_tsk();
+		tsk = cgroup_override_get_source_tsk();
 		uptime = timespec64_sub(uptime,
 					ns_to_timespec64(tsk->start_time));
 
