@@ -437,6 +437,8 @@ static inline int acpi_get_node(acpi_handle handle)
 	return 0;
 }
 #endif
+#define ACPI_NODE_GET(adev) ((adev) && (adev)->handle ? \
+		acpi_get_node((adev)->handle) : NUMA_NO_NODE)
 extern int acpi_paddr_to_node(u64 start_addr, u64 size);
 
 extern int pnpacpi_disabled;
@@ -691,6 +693,7 @@ static inline u64 acpi_arch_get_root_pointer(void)
 #define ACPI_HANDLE(dev)		(NULL)
 #define ACPI_HANDLE_FWNODE(fwnode)	(NULL)
 #define ACPI_DEVICE_CLASS(_cls, _msk)	.cls = (0), .cls_msk = (0),
+#define ACPI_NODE_GET(adev)            NUMA_NO_NODE
 
 struct fwnode_handle;
 
