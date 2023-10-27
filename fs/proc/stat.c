@@ -141,6 +141,7 @@ static int show_stat(struct seq_file *p, void *v)
 			kcs = &kcpustat_cpu(i);
 		} else {
 			cpuacct_get_kcpustat(tsk, i, &kcpustat);
+			cgroup_override_kcpustat(&kcpustat, &kcpustat_cpu(i));
 			kcs = &kcpustat;
 		}
 
@@ -191,6 +192,7 @@ static int show_stat(struct seq_file *p, void *v)
 			kcs = &kcpustat_cpu(i);
 		} else {
 			cpuacct_get_kcpustat(tsk, i, &kcpustat);
+			cgroup_override_kcpustat(&kcpustat, &kcpustat_cpu(i));
 			kcs = &kcpustat;
 		}
 
