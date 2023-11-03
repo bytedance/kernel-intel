@@ -5290,6 +5290,7 @@ static int tcp_prune_queue(struct sock *sk)
 static bool tcp_should_expand_sndbuf(const struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
+	bool under_pressure, urgent = false;
 
 	/* If the user specified a specific send buffer setting, do
 	 * not modify it.
@@ -5297,16 +5298,20 @@ static bool tcp_should_expand_sndbuf(const struct sock *sk)
 	if (sk->sk_userlocks & SOCK_SNDBUF_LOCK)
 		return false;
 
-	/* If we are under global TCP memory pressure, do not expand.  */
-	if (tcp_under_memory_pressure(sk))
+	/* If we filled the congestion window, do not expand.  */
+	if (tcp_packets_in_flight(tp) >= tp->snd_cwnd)
+		return false;
+
+	under_pressure = mem_cgroup_sockets_enabled && sk->sk_memcg &&
+			 mem_cgroup_under_socket_pressure(sk->sk_memcg,
+							  &urgent);
+
+	/* If we are under net-memcg/TCP memory pressure, do not expand.  */
+	if (under_pressure || (!urgent && READ_ONCE(tcp_memory_pressure)))
 		return false;
 
 	/* If we are under soft global TCP memory pressure, do not expand.  */
-	if (sk_memory_allocated(sk) >= sk_prot_mem_limits(sk, 0))
-		return false;
-
-	/* If we filled the congestion window, do not expand.  */
-	if (tcp_packets_in_flight(tp) >= tp->snd_cwnd)
+	if (!urgent && sk_memory_allocated(sk) >= sk_prot_mem_limits(sk, 0))
 		return false;
 
 	return true;
