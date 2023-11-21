@@ -540,7 +540,7 @@ static int dbgfs_mk_context(char *name)
 
 	new_ctx = dbgfs_new_ctx();
 	if (!new_ctx) {
-		debugfs_remove(new_dir);
+		debugfs_remove_recursive(new_dir);
 		dbgfs_dirs[dbgfs_nr_ctxs] = NULL;
 		return -ENOMEM;
 	}
@@ -636,7 +636,7 @@ static int dbgfs_rm_context(char *name)
 
 	for (i = 0, j = 0; i < dbgfs_nr_ctxs; i++) {
 		if (dbgfs_dirs[i] == dir) {
-			debugfs_remove(dbgfs_dirs[i]);
+			debugfs_remove_recursive(dbgfs_dirs[i]);
 			dbgfs_destroy_ctx(dbgfs_ctxs[i]);
 			continue;
 		}
@@ -770,7 +770,7 @@ static int __init __damon_dbgfs_init(void)
 
 	dbgfs_dirs = kmalloc_array(1, sizeof(dbgfs_root), GFP_KERNEL);
 	if (!dbgfs_dirs) {
-		debugfs_remove(dbgfs_root);
+		debugfs_remove_recursive(dbgfs_root);
 		return -ENOMEM;
 	}
 	dbgfs_dirs[0] = dbgfs_root;
