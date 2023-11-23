@@ -7883,7 +7883,11 @@ int in_sched_functions(unsigned long addr)
  * Default task group.
  * Every task in system belongs to this group at bootup.
  */
-struct task_group root_task_group;
+#define TG_SYSCTL(name, minv, maxv) SYSCTL_DEFAULT,
+struct task_group root_task_group = { .tg_sysctls.sysctl_array = {
+#include "tg_sched_sysctl.h"
+} };
+#undef TG_SYSCTL
 LIST_HEAD(task_groups);
 
 /* Cacheline aligned slab cache for task_group */
@@ -9139,6 +9143,84 @@ static int cpu_idle_write_s64(struct cgroup_subsys_state *css,
 {
 	return sched_group_set_idle(css_tg(css), idle);
 }
+
+struct task_group_sysctl_item {
+	const char	*sysctl_name;
+	const int	max_v;
+	const int	min_v;
+};
+
+#define TG_SYSCTL(name, minv, maxv)         \
+{											\
+	.sysctl_name    = #name,                \
+	.min_v          = minv,                 \
+	.max_v          = maxv,                 \
+},                                          \
+
+static struct task_group_sysctl_item tg_sysctl_table[] = {
+#include "tg_sched_sysctl.h"
+};
+
+#undef TG_SYSCTL
+
+static int cpu_sysctls_show(struct seq_file *sf, void *v)
+{
+	struct task_group *tg = css_tg(seq_css(sf));
+	int i;
+
+	for (i = 0; i < __TG_SYSCTL_NR; i++) {
+		if (tg->tg_sysctls.sysctl_array[i] == SYSCTL_DEFAULT)
+			seq_printf(sf, "%s:%s\n", tg_sysctl_table[i].sysctl_name, "default");
+		else
+			seq_printf(sf, "%s:%d\n", tg_sysctl_table[i].sysctl_name,
+				tg->tg_sysctls.sysctl_array[i]);
+	}
+	return 0;
+}
+
+/**
+ * cpu_sysctls_write() - Update the sysctl of the task_group.
+ * @of: Handler for the file.
+ * @buf: Data from the user.
+ * @nbytes: Number of bytes of the data.
+ * @off: Offset in the file.
+ *
+ * User can pass data like:
+ * echo sysctl_sched_wakeup_granularity 1700000 > cpu.sysctls
+ *
+ * Return:
+ * * >= 0 - Number of bytes processed in the input.
+ * * -EINVAL - If buf is not valid.
+ */
+static ssize_t cpu_sysctls_write(struct kernfs_open_file *of, char *buf,
+				size_t nbytes, loff_t off)
+{
+	struct task_group *tg = css_tg(of_css(of));
+	struct task_group_sysctl_item *item;
+	int val, i, ret;
+	char *token;
+
+	buf = strstrip(buf);
+	token = strsep(&buf, " ");
+
+	if (!token || !buf)
+		return -EINVAL;
+
+	for (i = 0; i < __TG_SYSCTL_NR; i++) {
+		item = &tg_sysctl_table[i];
+		if (strcmp(token, item->sysctl_name))
+			continue;
+		ret = kstrtoint(buf, 0, &val);
+		if (ret)
+			return ret;
+		if ((val > item->max_v || val < item->min_v) && val != SYSCTL_DEFAULT)
+			return -EINVAL;
+		tg->tg_sysctls.sysctl_array[i] = val;
+		return nbytes;
+	}
+
+	return -EINVAL;
+}
 #endif
 
 #ifdef CONFIG_CGROUP_OVERRIDE_PROC
@@ -9393,6 +9475,11 @@ static struct cftype cpu_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.read_s64 = cpu_idle_read_s64,
 		.write_s64 = cpu_idle_write_s64,
+	},
+	{
+		.name = "sysctls",
+		.seq_show = cpu_sysctls_show,
+		.write = cpu_sysctls_write,
 	},
 #endif
 #ifdef CONFIG_CFS_BANDWIDTH

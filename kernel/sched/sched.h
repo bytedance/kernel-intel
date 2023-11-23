@@ -366,6 +366,23 @@ struct cfs_bandwidth {
 #endif
 };
 
+#ifdef CONFIG_FAIR_GROUP_SCHED
+
+#define TG_SYSCTL(name, minv, maxv) __TG_##name,
+
+enum tg_sysctl_type {
+#include "tg_sched_sysctl.h"
+	__TG_SYSCTL_NR,
+};
+
+struct task_group_sysctls {
+	int sysctl_array[__TG_SYSCTL_NR];
+};
+
+#undef TG_SYSCTL
+
+#endif /* CONFIG_FAIR_GROUP_SCHED */
+
 /* Task group related information */
 struct task_group {
 	struct cgroup_subsys_state css;
@@ -383,6 +400,8 @@ struct task_group {
 #ifdef CONFIG_CGROUP_OVERRIDE_PROC
 	int			override_proc;
 #endif
+	/* Per task_group sched sysctls */
+	struct task_group_sysctls tg_sysctls;
 
 #ifdef	CONFIG_SMP
 	/*
@@ -1340,6 +1359,14 @@ static inline struct cfs_rq *group_cfs_rq(struct sched_entity *grp)
 	return grp->my_q;
 }
 
+#define SYSCTL_DEFAULT (-1)
+
+#define get_tg_sysctl(tg, sysctl) \
+({									\
+	(tg->tg_sysctls.sysctl_array[__TG_##sysctl] == SYSCTL_DEFAULT) ?	\
+		sysctl : tg->tg_sysctls.sysctl_array[__TG_##sysctl]; \
+})
+
 #else
 
 static inline struct task_struct *task_of(struct sched_entity *se)
@@ -1365,6 +1392,9 @@ static inline struct cfs_rq *group_cfs_rq(struct sched_entity *grp)
 {
 	return NULL;
 }
+
+#define get_tg_sysctl(tg, sysctl) sysctl
+
 #endif
 
 extern void update_rq_clock(struct rq *rq);

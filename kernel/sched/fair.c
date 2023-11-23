@@ -661,6 +661,11 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
 	return delta;
 }
 
+static inline struct task_group *get_tg_from_cfs_rq(struct cfs_rq *cfs_rq)
+{
+	return cfs_rq->tg;
+}
+
 /*
  * The idea is to set a period in which each task runs once.
  *
@@ -669,12 +674,12 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
  *
  * p = (nr <= nl) ? l : l*nr/nl
  */
-static u64 __sched_period(unsigned long nr_running)
+static u64 __sched_period(unsigned long nr_running, struct task_group *tg)
 {
 	if (unlikely(nr_running > sched_nr_latency))
-		return nr_running * sysctl_sched_min_granularity;
+		return nr_running * get_tg_sysctl(tg, sysctl_sched_min_granularity);
 	else
-		return sysctl_sched_latency;
+		return get_tg_sysctl(tg, sysctl_sched_latency);
 }
 
 static bool sched_idle_cfs_rq(struct cfs_rq *cfs_rq);
@@ -687,6 +692,7 @@ static bool sched_idle_cfs_rq(struct cfs_rq *cfs_rq);
  */
 static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+	struct task_group *tg = get_tg_from_cfs_rq(cfs_rq);
 	unsigned int nr_running = cfs_rq->nr_running;
 	struct sched_entity *init_se = se;
 	unsigned int min_gran;
@@ -695,7 +701,7 @@ static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	if (sched_feat(ALT_PERIOD))
 		nr_running = rq_of(cfs_rq)->cfs.h_nr_running;
 
-	slice = __sched_period(nr_running + !se->on_rq);
+	slice = __sched_period(nr_running + !se->on_rq, tg);
 
 	for_each_sched_entity(se) {
 		struct load_weight *load;
@@ -718,7 +724,7 @@ static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		if (se_is_idle(init_se) && !sched_idle_cfs_rq(cfs_rq))
 			min_gran = sysctl_sched_idle_min_granularity;
 		else
-			min_gran = sysctl_sched_min_granularity;
+			min_gran = get_tg_sysctl(tg, sysctl_sched_min_granularity);
 
 		slice = max_t(u64, slice, min_gran);
 	}
@@ -3896,12 +3902,13 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq) {}
 static void check_spread(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 #ifdef CONFIG_SCHED_DEBUG
+	struct task_group *tg = get_tg_from_cfs_rq(cfs_rq);
 	s64 d = se->vruntime - cfs_rq->min_vruntime;
 
 	if (d < 0)
 		d = -d;
 
-	if (d > 3*sysctl_sched_latency)
+	if (d > 3*get_tg_sysctl(tg, sysctl_sched_latency))
 		schedstat_inc(cfs_rq->nr_spread_over);
 #endif
 }
@@ -3932,6 +3939,7 @@ static inline bool entity_is_long_sleeper(struct sched_entity *se)
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 {
+	struct task_group *tg = get_tg_from_cfs_rq(cfs_rq);
 	u64 vruntime = cfs_rq->min_vruntime;
 
 	/*
@@ -3948,9 +3956,9 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 		unsigned long thresh;
 
 		if (se_is_idle(se))
-			thresh = sysctl_sched_min_granularity;
+			thresh = get_tg_sysctl(tg, sysctl_sched_min_granularity);
 		else
-			thresh = sysctl_sched_latency;
+			thresh = get_tg_sysctl(tg, sysctl_sched_latency);
 
 		/*
 		 * Halve their sleep time's effect, to allow
@@ -4210,8 +4218,10 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 {
 	unsigned long ideal_runtime, delta_exec;
 	struct sched_entity *se;
+	struct task_group *tg;
 	s64 delta;
 
+	tg = get_tg_from_cfs_rq(cfs_rq);
 	ideal_runtime = sched_slice(cfs_rq, curr);
 	delta_exec = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;
 	if (delta_exec > ideal_runtime) {
@@ -4229,7 +4239,7 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	 * narrow margin doesn't have to wait for a full slice.
 	 * This also mitigates buddy induced latencies under load.
 	 */
-	if (delta_exec < sysctl_sched_min_granularity)
+	if (delta_exec < get_tg_sysctl(tg, sysctl_sched_min_granularity))
 		return;
 
 	se = __pick_first_entity(cfs_rq);
@@ -6801,8 +6811,8 @@ balance_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 
 static unsigned long wakeup_gran(struct sched_entity *se)
 {
-	unsigned long gran = sysctl_sched_wakeup_granularity;
-
+	unsigned long gran = get_tg_sysctl(get_tg_from_cfs_rq(cfs_rq_of(se)),
+							sysctl_sched_wakeup_granularity);
 	/*
 	 * Since its curr running now, convert the gran from real-time
 	 * to virtual-time in his units.
@@ -11183,6 +11193,10 @@ int alloc_fair_sched_group(struct task_group *tg, struct task_group *parent)
 	tg->se = kcalloc(nr_cpu_ids, sizeof(se), GFP_KERNEL);
 	if (!tg->se)
 		goto err;
+
+	/* inherit parent's sysctl */
+	for (i = 0; i < __TG_SYSCTL_NR; i++)
+		tg->tg_sysctls.sysctl_array[i] = parent->tg_sysctls.sysctl_array[i];
 
 	tg->shares = NICE_0_LOAD;
 
