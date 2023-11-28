@@ -9252,6 +9252,11 @@ static struct cftype cpu_legacy_files[] = {
 		.read_s64 = cpu_idle_read_s64,
 		.write_s64 = cpu_idle_write_s64,
 	},
+	{
+		.name = "sysctls",
+		.seq_show = cpu_sysctls_show,
+		.write = cpu_sysctls_write,
+	},
 #endif
 #ifdef CONFIG_CGROUP_OVERRIDE_PROC
 	{
