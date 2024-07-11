@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (c) 2024 ByteDance.
+
+name: Pull Request Checking
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - 5.15-velinux
+
+jobs:
+  StaticCheck:
+    uses: bytedance/kernel/.github/workflows/static.yml@5.4.143-velinux
+    secrets:
+      ssh_key: ${{ secrets.SSH_KEY }}
+  BuildAndTestKernel:
+    uses: bytedance/kernel/.github/workflows/build-and-test.yml@5.4.143-velinux
+    secrets:
+      ssh_key: ${{ secrets.SSH_KEY }}
