@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
+/* Copyright (c) 2024, ByteDance Ltd. and/or its affiliates. All rights reserved. */
 #include <linux/kallsyms.h>
 #include <linux/cgroup.h>
 
